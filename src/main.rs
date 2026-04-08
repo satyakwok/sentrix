@@ -8,7 +8,7 @@ use sentrix::wallet::wallet::Wallet;
 use sentrix::wallet::keystore::Keystore;
 use sentrix::storage::db::Storage;
 use sentrix::api::routes::{create_router, SharedState};
-use sentrix::network::node::DEFAULT_PORT;
+use sentrix::network::node::{DEFAULT_PORT, Node, NodeEvent};
 
 const API_PORT: u16 = 8545;
 
@@ -369,7 +369,7 @@ fn cmd_validator_toggle(address: &str, admin_key: &str) -> anyhow::Result<()> {
 
 async fn cmd_start(
     validator_key: Option<String>,
-    _port: u16,
+    port: u16,
     peers_str: String,
 ) -> anyhow::Result<()> {
     let storage = Arc::new(Storage::open(&get_db_path())?);
@@ -378,12 +378,52 @@ async fn cmd_start(
 
     let shared: SharedState = Arc::new(RwLock::new(bc));
 
+    // P2P event channel
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<NodeEvent>(256);
+
+    // Create P2P node
+    let node = Arc::new(Node::new(
+        "0.0.0.0".to_string(),
+        port,
+        shared.clone(),
+        event_tx.clone(),
+    ));
+
+    // Start P2P listener
+    let p2p_bc = shared.clone();
+    let p2p_peers = node.peers.clone();
+    let p2p_etx = event_tx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = Node::start_listener(port, p2p_bc, p2p_peers, p2p_etx).await {
+            tracing::error!("P2P listener failed: {}", e);
+        }
+    });
+    println!("P2P listening on port {}", port);
+
     // Start REST API
     let app = create_router(shared.clone());
     let api_addr = format!("0.0.0.0:{}", API_PORT);
     println!("REST API listening on http://{}", api_addr);
 
     let listener = tokio::net::TcpListener::bind(&api_addr).await?;
+
+    // Connect to bootstrap peers
+    if !peers_str.is_empty() {
+        for peer_str in peers_str.split(',') {
+            let peer = peer_str.trim().to_string();
+            if peer.is_empty() { continue; }
+            let node_clone = node.clone();
+            tokio::spawn(async move {
+                match node_clone.connect_peer(
+                    &peer.split(':').next().unwrap_or(""),
+                    peer.split(':').nth(1).and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT),
+                ).await {
+                    Ok(()) => println!("Connected to peer: {}", peer),
+                    Err(e) => println!("Failed to connect to {}: {}", peer, e),
+                }
+            });
+        }
+    }
 
     // Validator loop (if validator key provided)
     if let Some(key_hex) = validator_key {
@@ -392,6 +432,7 @@ async fn cmd_start(
 
         let shared_clone = shared.clone();
         let storage_clone = storage.clone();
+        let node_clone = node.clone();
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
@@ -399,11 +440,15 @@ async fn cmd_start(
                 match bc.create_block(&wallet.address) {
                     Ok(block) => {
                         let height = block.index;
+                        let block_clone = block.clone();
                         match bc.add_block(block) {
                             Ok(()) => {
                                 println!("Block {} produced by {}", height, wallet.address);
                                 let _ = storage_clone.save_blockchain(&bc);
                                 let _ = storage_clone.save_height(height);
+                                // Broadcast to peers
+                                drop(bc);
+                                node_clone.broadcast_block(&block_clone).await;
                             }
                             Err(e) => tracing::warn!("add_block failed: {}", e),
                         }
@@ -414,12 +459,20 @@ async fn cmd_start(
         });
     }
 
-    // Connect to bootstrap peers
-    if !peers_str.is_empty() {
-        for peer in peers_str.split(',') {
-            println!("Bootstrap peer: {}", peer.trim());
+    // Event handler (log P2P events)
+    tokio::spawn(async move {
+        while let Some(event) = event_rx.recv().await {
+            match event {
+                NodeEvent::PeerConnected(addr) => tracing::info!("Peer connected: {}", addr),
+                NodeEvent::PeerDisconnected(addr) => tracing::info!("Peer disconnected: {}", addr),
+                NodeEvent::NewBlock(block) => tracing::info!("Received block {} from peer", block.index),
+                NodeEvent::NewTransaction(_) => {},
+                NodeEvent::SyncNeeded { peer_addr, peer_height } => {
+                    tracing::info!("Sync needed from {} (height: {})", peer_addr, peer_height);
+                }
+            }
         }
-    }
+    });
 
     println!("Node started. Press Ctrl+C to stop.");
     axum::serve(listener, app).await?;
