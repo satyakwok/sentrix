@@ -429,3 +429,15 @@ Sentrix Chain is developed and maintained by **SentrisCloud**.
 For commercial licensing, partnership inquiries, or validator onboarding, reach out through the official channels.
 
 Security issues: see [SECURITY.md](SECURITY.md) — please report privately, never as a public issue.
+
+---
+
+## Disclaimer
+
+All claims, content, designs, algorithms, estimates, roadmaps, specifications, and performance measurements described in this project are done with SentrisCloud's good faith efforts. It is up to the reader to check and validate their accuracy and truthfulness. Furthermore, nothing in this project constitutes a solicitation for investment.
+
+Any content produced by SentrisCloud or developer resources that SentrisCloud provides are for educational and inspirational purposes only. SentrisCloud does not encourage, induce or sanction the deployment, integration or use of any such applications in violation of applicable laws or regulations and hereby prohibits any such deployment, integration or use. This includes the use of any such applications by the reader (a) in violation of export control or sanctions laws of any applicable jurisdiction, (b) if the reader is located in or ordinarily resident in a country or territory subject to comprehensive sanctions, or (c) if the reader is or is working on behalf of a person subject to blocking or denied party prohibitions.
+
+The software is provided "as is", without warranty of any kind, express or implied. In no event shall SentrisCloud be liable for any claim, damages or other liability arising from the use of the software. Use at your own risk.
+
+SRX tokens have no inherent monetary value. This project is a technology demonstration and should not be treated as a financial product, security, or investment vehicle.
