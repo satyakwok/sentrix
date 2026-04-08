@@ -88,14 +88,19 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/address/{address}/history",  get(get_address_history))
         .route("/address/{address}/info",     get(get_address_info))
         .route("/rpc",                        post(rpc_dispatcher))
-        // Block Explorer
-        .route("/explorer",                   get(explorer::explorer_home))
-        .route("/explorer/block/{index}",     get(explorer::explorer_block))
-        .route("/explorer/address/{address}", get(explorer::explorer_address))
-        .route("/explorer/tx/{txid}",         get(explorer::explorer_tx))
-        .route("/explorer/validators",        get(explorer::explorer_validators))
-        .route("/explorer/tokens",            get(explorer::explorer_tokens))
+        // Block Explorer (nested router to avoid path conflicts)
+        .nest("/explorer", explorer_router(state.clone()))
         .with_state(state)
+}
+
+fn explorer_router(_state: SharedState) -> Router<SharedState> {
+    Router::new()
+        .route("/",             get(explorer::explorer_home))
+        .route("/validators",   get(explorer::explorer_validators))
+        .route("/tokens",       get(explorer::explorer_tokens))
+        .route("/block/:index",     get(explorer::explorer_block))
+        .route("/address/:address", get(explorer::explorer_address))
+        .route("/tx/:txid",         get(explorer::explorer_tx))
 }
 
 // ── Handlers ─────────────────────────────────────────────
