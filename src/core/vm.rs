@@ -56,6 +56,19 @@ impl SRX20Contract {
         Ok(())
     }
 
+    pub fn burn(&mut self, from: &str, amount: u64) -> SentrixResult<()> {
+        if from.is_empty() || amount == 0 {
+            return Err(SentrixError::InvalidTransaction("invalid burn params".to_string()));
+        }
+        let balance = self.balance_of(from);
+        if balance < amount {
+            return Err(SentrixError::InsufficientBalance { have: balance, need: amount });
+        }
+        *self.balances.get_mut(from).unwrap() -= amount;
+        self.total_supply -= amount;
+        Ok(())
+    }
+
     pub fn transfer(&mut self, from: &str, to: &str, amount: u64) -> SentrixResult<()> {
         if from.is_empty() || to.is_empty() || amount == 0 {
             return Err(SentrixError::InvalidTransaction("invalid transfer params".to_string()));
@@ -222,6 +235,11 @@ impl ContractRegistry {
                 let amount = params["amount"].as_u64().unwrap_or(0);
                 contract.mint(to, amount)?;
                 Ok(serde_json::json!({"status": "ok"}))
+            }
+            "burn" => {
+                let amount = params["amount"].as_u64().unwrap_or(0);
+                contract.burn(caller, amount)?;
+                Ok(serde_json::json!({"status": "ok", "burned": amount}))
             }
             "transfer" => {
                 let to = params["to"].as_str().unwrap_or("");
@@ -412,5 +430,44 @@ mod tests {
         let list = reg.list_contracts();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0]["symbol"], "FPT");
+    }
+
+    #[test]
+    fn test_burn() {
+        let (mut reg, addr) = setup_registry();
+        let c = reg.get_contract_mut(&addr).unwrap();
+        let supply_before = c.total_supply;
+        c.burn("owner", 1_000).unwrap();
+        assert_eq!(c.balance_of("owner"), supply_before - 1_000);
+        assert_eq!(c.total_supply, supply_before - 1_000);
+    }
+
+    #[test]
+    fn test_burn_insufficient() {
+        let (mut reg, addr) = setup_registry();
+        let c = reg.get_contract_mut(&addr).unwrap();
+        let result = c.burn("alice", 1_000); // alice has 0
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_burn_via_dispatch() {
+        let (mut reg, addr) = setup_registry();
+        reg.call(
+            &addr, "burn", "owner",
+            &serde_json::json!({"amount": 500}),
+        ).unwrap();
+        let c = reg.get_contract(&addr).unwrap();
+        assert_eq!(c.total_supply, 999_999_500);
+    }
+
+    #[test]
+    fn test_burn_reduces_supply() {
+        let (mut reg, addr) = setup_registry();
+        let c = reg.get_contract_mut(&addr).unwrap();
+        c.transfer("owner", "alice", 1_000).unwrap();
+        c.burn("alice", 500).unwrap();
+        assert_eq!(c.balance_of("alice"), 500);
+        assert_eq!(c.total_supply, 999_999_500); // 1B - 500 burned
     }
 }

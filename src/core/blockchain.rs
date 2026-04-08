@@ -378,6 +378,45 @@ impl Blockchain {
         Ok(())
     }
 
+    pub fn token_burn(
+        &mut self,
+        contract_address: &str,
+        caller: &str,
+        amount: u64,
+        gas_fee: u64,
+    ) -> SentrixResult<()> {
+        // Check caller has enough SRX for gas
+        let balance = self.accounts.get_balance(caller);
+        if balance < gas_fee {
+            return Err(SentrixError::InsufficientBalance {
+                have: balance,
+                need: gas_fee,
+            });
+        }
+
+        // Deduct gas: 50% burned, 50% to validator
+        if gas_fee > 0 {
+            let caller_acc = self.accounts.get_or_create(caller);
+            caller_acc.balance -= gas_fee;
+
+            let burn_share = gas_fee / 2;
+            let val_share = gas_fee - burn_share;
+            self.accounts.total_burned += burn_share;
+
+            let validator_addr = self.authority
+                .expected_validator(self.height() + 1)
+                .map(|v| v.address.clone())
+                .unwrap_or_else(|_| ECOSYSTEM_FUND_ADDRESS.to_string());
+            self.accounts.credit(&validator_addr, val_share);
+        }
+
+        // Execute token burn
+        let contract = self.contracts.get_contract_mut(contract_address)
+            .ok_or_else(|| SentrixError::NotFound(format!("contract {}", contract_address)))?;
+        contract.burn(caller, amount)?;
+        Ok(())
+    }
+
     pub fn token_balance(&self, contract_address: &str, address: &str) -> u64 {
         self.contracts.get_contract(contract_address)
             .map(|c| c.balance_of(address))

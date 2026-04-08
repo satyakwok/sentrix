@@ -58,6 +58,13 @@ pub struct TokenTransferRequest {
     pub gas_fee: u64,
 }
 
+#[derive(Deserialize)]
+pub struct TokenBurnRequest {
+    pub caller: String,
+    pub amount: u64,
+    pub gas_fee: u64,
+}
+
 // ── Router ───────────────────────────────────────────────
 pub fn create_router(state: SharedState) -> Router {
     Router::new()
@@ -77,6 +84,7 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/tokens/{contract}",         get(get_token_info))
         .route("/tokens/{contract}/balance/{addr}", get(get_token_balance))
         .route("/tokens/{contract}/transfer", post(token_transfer))
+        .route("/tokens/{contract}/burn",     post(token_burn))
         .route("/address/{address}/history",  get(get_address_history))
         .route("/address/{address}/info",     get(get_address_info))
         .route("/rpc",                        post(rpc_dispatcher))
@@ -289,6 +297,26 @@ async fn token_transfer(
             "contract": contract,
             "from": req.caller,
             "to": req.to,
+            "amount": req.amount,
+        }))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "success": false,
+            "error": e.to_string(),
+        })))),
+    }
+}
+
+async fn token_burn(
+    State(state): State<SharedState>,
+    Path(contract): Path<String>,
+    Json(req): Json<TokenBurnRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let mut bc = state.write().await;
+    match bc.token_burn(&contract, &req.caller, req.amount, req.gas_fee) {
+        Ok(()) => Ok(Json(serde_json::json!({
+            "success": true,
+            "contract": contract,
+            "burned_by": req.caller,
             "amount": req.amount,
         }))),
         Err(e) => Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({

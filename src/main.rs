@@ -151,6 +151,13 @@ enum TokenCommands {
         #[arg(long)] from_key: String,
         #[arg(long, default_value_t = 10_000)] gas: u64,
     },
+    /// Burn tokens (remove from circulation)
+    Burn {
+        #[arg(long)] contract: String,
+        #[arg(long)] amount: u64,
+        #[arg(long)] from_key: String,
+        #[arg(long, default_value_t = 10_000)] gas: u64,
+    },
     /// Check token balance
     Balance {
         #[arg(long)] contract: String,
@@ -220,6 +227,9 @@ async fn main() -> anyhow::Result<()> {
             }
             TokenCommands::Transfer { contract, to, amount, from_key, gas } => {
                 cmd_token_transfer(&contract, &to, amount, &from_key, gas)?;
+            }
+            TokenCommands::Burn { contract, amount, from_key, gas } => {
+                cmd_token_burn(&contract, amount, &from_key, gas)?;
             }
             TokenCommands::Balance { contract, address } => {
                 cmd_token_balance(&contract, &address)?;
@@ -557,6 +567,20 @@ fn cmd_token_transfer(contract: &str, to: &str, amount: u64, from_key: &str, gas
     println!("  From:     {}", wallet.address);
     println!("  To:       {}", to);
     println!("  Amount:   {}", amount);
+    println!("  Contract: {}", contract);
+    Ok(())
+}
+
+fn cmd_token_burn(contract: &str, amount: u64, from_key: &str, gas: u64) -> anyhow::Result<()> {
+    let storage = Storage::open(&get_db_path())?;
+    let mut bc = storage.load_blockchain()?
+        .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
+    let wallet = Wallet::from_private_key(from_key)?;
+    bc.token_burn(contract, &wallet.address, amount, gas)?;
+    storage.save_blockchain(&bc)?;
+    println!("Tokens burned successfully!");
+    println!("  From:     {}", wallet.address);
+    println!("  Amount:   {} burned", amount);
     println!("  Contract: {}", contract);
     Ok(())
 }
