@@ -132,7 +132,11 @@ impl Blockchain {
             });
         }
 
-        self.mempool.push_back(tx);
+        // Insert sorted by fee descending (highest fee = front of queue)
+        let pos = self.mempool.iter()
+            .position(|existing| existing.fee < tx.fee)
+            .unwrap_or(self.mempool.len());
+        self.mempool.insert(pos, tx);
         Ok(())
     }
 
@@ -658,5 +662,35 @@ mod tests {
         bc.deploy_token("d", "B".to_string(), "B".to_string(), 18, 200, 0).unwrap();
         let stats = bc.chain_stats();
         assert_eq!(stats["deployed_tokens"], 2);
+    }
+
+    #[test]
+    fn test_mempool_priority_fee_ordering() {
+        let mut bc = setup_chain();
+        let (sk, pk) = make_keypair();
+
+        bc.accounts.credit("sender", 100_000_000);
+
+        // Add 3 txs with different fees: low, high, medium
+        let tx_low = Transaction::new(
+            "sender".to_string(), "recv".to_string(),
+            100_000, MIN_TX_FEE, 0, String::new(), &sk, &pk,
+        ).unwrap();
+        let tx_high = Transaction::new(
+            "sender".to_string(), "recv".to_string(),
+            100_000, MIN_TX_FEE * 100, 1, String::new(), &sk, &pk,
+        ).unwrap();
+        let tx_mid = Transaction::new(
+            "sender".to_string(), "recv".to_string(),
+            100_000, MIN_TX_FEE * 10, 2, String::new(), &sk, &pk,
+        ).unwrap();
+
+        bc.add_to_mempool(tx_low).unwrap();
+        bc.add_to_mempool(tx_high).unwrap();
+        bc.add_to_mempool(tx_mid).unwrap();
+
+        // Mempool should be ordered: high, mid, low
+        let fees: Vec<u64> = bc.mempool.iter().map(|tx| tx.fee).collect();
+        assert_eq!(fees, vec![MIN_TX_FEE * 100, MIN_TX_FEE * 10, MIN_TX_FEE]);
     }
 }
