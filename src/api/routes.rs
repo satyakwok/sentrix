@@ -6,6 +6,7 @@ use axum::{
     extract::{State, Path},
     Json,
     http::StatusCode,
+    middleware,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -65,9 +66,33 @@ pub struct TokenBurnRequest {
     pub gas_fee: u64,
 }
 
+// ── API key middleware ────────────────────────────────────
+async fn require_api_key(
+    req: axum::http::Request<axum::body::Body>,
+    next: middleware::Next,
+) -> Result<axum::response::Response, StatusCode> {
+    // If SENTRIX_API_KEY not set, skip auth (dev mode)
+    let required_key = match std::env::var("SENTRIX_API_KEY") {
+        Ok(k) if !k.is_empty() => k,
+        _ => return Ok(next.run(req).await),
+    };
+
+    let provided = req.headers()
+        .get("X-API-Key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if provided != required_key {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    Ok(next.run(req).await)
+}
+
 // ── Router ───────────────────────────────────────────────
 pub fn create_router(state: SharedState) -> Router {
-    Router::new()
+    // Public routes (GET — no auth needed)
+    let public = Router::new()
         .route("/health",                    get(health))
         .route("/chain/info",                get(chain_info))
         .route("/chain/blocks",              get(get_blocks))
@@ -75,20 +100,26 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/chain/validate",            get(validate_chain))
         .route("/accounts/{address}/balance", get(get_balance))
         .route("/accounts/{address}/nonce",   get(get_nonce))
-        .route("/transactions",              post(send_transaction))
         .route("/transactions/{txid}",       get(get_transaction))
         .route("/mempool",                   get(get_mempool))
         .route("/validators",                get(get_validators))
         .route("/tokens",                    get(list_tokens))
-        .route("/tokens/deploy",             post(deploy_token))
         .route("/tokens/{contract}",         get(get_token_info))
         .route("/tokens/{contract}/balance/{addr}", get(get_token_balance))
+        .route("/address/{address}/history",  get(get_address_history))
+        .route("/address/{address}/info",     get(get_address_info));
+
+    // Protected routes (POST — require X-API-Key if SENTRIX_API_KEY is set)
+    let protected = Router::new()
+        .route("/transactions",              post(send_transaction))
+        .route("/tokens/deploy",             post(deploy_token))
         .route("/tokens/{contract}/transfer", post(token_transfer))
         .route("/tokens/{contract}/burn",     post(token_burn))
-        .route("/address/{address}/history",  get(get_address_history))
-        .route("/address/{address}/info",     get(get_address_info))
         .route("/rpc",                        post(rpc_dispatcher))
-        // Block Explorer (nested router to avoid path conflicts)
+        .layer(middleware::from_fn(require_api_key));
+
+    public
+        .merge(protected)
         .nest("/explorer", explorer_router(state.clone()))
         .with_state(state)
 }

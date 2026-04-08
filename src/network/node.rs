@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use crate::core::block::Block;
 use crate::core::blockchain::Blockchain;
 use crate::core::transaction::Transaction;
-use crate::storage::db::Storage;
 use crate::types::error::{SentrixError, SentrixResult};
 
 pub const DEFAULT_PORT: u16 = 30303;

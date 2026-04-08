@@ -5,6 +5,7 @@ use secp256k1::rand::rngs::OsRng;
 use sha3::Keccak256;
 use sha3::Digest;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 use crate::types::error::{SentrixError, SentrixResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,6 +14,12 @@ pub struct Wallet {
     pub public_key: String,      // hex encoded uncompressed pubkey (65 bytes)
     #[serde(skip_serializing)]
     pub secret_key_hex: String,  // hex encoded private key (never serialize to JSON output)
+}
+
+impl Drop for Wallet {
+    fn drop(&mut self) {
+        self.secret_key_hex.zeroize();
+    }
 }
 
 impl Wallet {
