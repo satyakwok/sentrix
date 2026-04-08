@@ -63,7 +63,7 @@ impl Blockchain {
     fn initialize_genesis(&mut self) {
         // Apply genesis premine allocations
         for (address, amount) in GENESIS_ALLOCATIONS {
-            self.accounts.credit(address, *amount);
+            let _ = self.accounts.credit(address, *amount);
         }
         self.total_minted = TOTAL_PREMINE;
 
@@ -149,8 +149,8 @@ impl Blockchain {
     fn mempool_pending_spend(&self, address: &str) -> u64 {
         self.mempool.iter()
             .filter(|tx| tx.from_address == address)
-            .map(|tx| tx.amount + tx.fee)
-            .sum()
+            .map(|tx| tx.amount.saturating_add(tx.fee))
+            .fold(0u64, |acc, v| acc.saturating_add(v))
     }
 
     pub fn mempool_size(&self) -> usize {
@@ -265,7 +265,7 @@ impl Blockchain {
 
         // ── Pass 2: commit ───────────────────────────────
         // Apply coinbase reward
-        self.accounts.credit(&block.validator, coinbase.amount);
+        self.accounts.credit(&block.validator, coinbase.amount)?;
         self.total_minted += coinbase.amount;
 
         // Apply all transactions
@@ -283,7 +283,7 @@ impl Blockchain {
         // Validator gets 50% of fees (other 50% already burned in transfer)
         let validator_fee_share = total_fee / 2;
         if validator_fee_share > 0 {
-            self.accounts.credit(&block.validator, validator_fee_share);
+            self.accounts.credit(&block.validator, validator_fee_share)?;
         }
 
         // Record validator stats
@@ -325,12 +325,13 @@ impl Blockchain {
         // Deduct fee: 50% burned, 50% to ecosystem fund
         if deploy_fee > 0 {
             let deployer_acc = self.accounts.get_or_create(deployer);
-            deployer_acc.balance -= deploy_fee;
+            deployer_acc.balance = deployer_acc.balance.checked_sub(deploy_fee)
+                .ok_or_else(|| SentrixError::Internal("deploy fee underflow".to_string()))?;
 
             let burn_share = deploy_fee / 2;
             let eco_share = deploy_fee - burn_share;
             self.accounts.total_burned += burn_share;
-            self.accounts.credit(ECOSYSTEM_FUND_ADDRESS, eco_share);
+            self.accounts.credit(ECOSYSTEM_FUND_ADDRESS, eco_share)?;
         }
 
         // Deploy contract
@@ -358,7 +359,8 @@ impl Blockchain {
         // Deduct gas: 50% burned, 50% to current validator (or ecosystem fund)
         if gas_fee > 0 {
             let caller_acc = self.accounts.get_or_create(caller);
-            caller_acc.balance -= gas_fee;
+            caller_acc.balance = caller_acc.balance.checked_sub(gas_fee)
+                .ok_or_else(|| SentrixError::Internal("gas fee underflow".to_string()))?;
 
             let burn_share = gas_fee / 2;
             let val_share = gas_fee - burn_share;
@@ -368,7 +370,7 @@ impl Blockchain {
                 .expected_validator(self.height() + 1)
                 .map(|v| v.address.clone())
                 .unwrap_or_else(|_| ECOSYSTEM_FUND_ADDRESS.to_string());
-            self.accounts.credit(&validator_addr, val_share);
+            self.accounts.credit(&validator_addr, val_share)?;
         }
 
         // Execute token transfer
@@ -397,7 +399,8 @@ impl Blockchain {
         // Deduct gas: 50% burned, 50% to validator
         if gas_fee > 0 {
             let caller_acc = self.accounts.get_or_create(caller);
-            caller_acc.balance -= gas_fee;
+            caller_acc.balance = caller_acc.balance.checked_sub(gas_fee)
+                .ok_or_else(|| SentrixError::Internal("gas fee underflow".to_string()))?;
 
             let burn_share = gas_fee / 2;
             let val_share = gas_fee - burn_share;
@@ -407,7 +410,7 @@ impl Blockchain {
                 .expected_validator(self.height() + 1)
                 .map(|v| v.address.clone())
                 .unwrap_or_else(|_| ECOSYSTEM_FUND_ADDRESS.to_string());
-            self.accounts.credit(&validator_addr, val_share);
+            self.accounts.credit(&validator_addr, val_share)?;
         }
 
         // Execute token burn
@@ -561,7 +564,7 @@ mod tests {
         let (sk, pk) = make_keypair();
 
         // Fund an account
-        bc.accounts.credit("sender", 10_000_000);
+        bc.accounts.credit("sender", 10_000_000).unwrap();
 
         let tx = Transaction::new(
             "sender".to_string(),
@@ -620,7 +623,7 @@ mod tests {
     fn test_deploy_token() {
         let mut bc = setup_chain();
         // Fund deployer
-        bc.accounts.credit("deployer", 1_000_000);
+        bc.accounts.credit("deployer", 1_000_000).unwrap();
 
         let addr = bc.deploy_token(
             "deployer", "TestToken".to_string(), "TT".to_string(),
@@ -637,7 +640,7 @@ mod tests {
     #[test]
     fn test_deploy_token_insufficient_fee() {
         let mut bc = setup_chain();
-        bc.accounts.credit("deployer", 100); // not enough for fee
+        bc.accounts.credit("deployer", 100).unwrap(); // not enough for fee
         let result = bc.deploy_token(
             "deployer", "Token".to_string(), "TK".to_string(),
             18, 1_000, 1_000,
@@ -648,7 +651,7 @@ mod tests {
     #[test]
     fn test_token_transfer() {
         let mut bc = setup_chain();
-        bc.accounts.credit("alice", 1_000_000);
+        bc.accounts.credit("alice", 1_000_000).unwrap();
 
         let addr = bc.deploy_token(
             "alice", "Coin".to_string(), "CN".to_string(),
@@ -663,7 +666,7 @@ mod tests {
     #[test]
     fn test_token_transfer_gas_burned() {
         let mut bc = setup_chain();
-        bc.accounts.credit("alice", 1_000_000);
+        bc.accounts.credit("alice", 1_000_000).unwrap();
 
         let addr = bc.deploy_token(
             "alice", "Coin".to_string(), "CN".to_string(),
@@ -679,7 +682,7 @@ mod tests {
     #[test]
     fn test_token_info() {
         let mut bc = setup_chain();
-        bc.accounts.credit("deployer", 1_000_000);
+        bc.accounts.credit("deployer", 1_000_000).unwrap();
 
         let addr = bc.deploy_token(
             "deployer", "MyToken".to_string(), "MT".to_string(),
@@ -696,7 +699,7 @@ mod tests {
     #[test]
     fn test_chain_stats_includes_tokens() {
         let mut bc = setup_chain();
-        bc.accounts.credit("d", 1_000_000);
+        bc.accounts.credit("d", 1_000_000).unwrap();
         bc.deploy_token("d", "A".to_string(), "A".to_string(), 18, 100, 0).unwrap();
         bc.deploy_token("d", "B".to_string(), "B".to_string(), 18, 200, 0).unwrap();
         let stats = bc.chain_stats();
@@ -708,7 +711,7 @@ mod tests {
         let mut bc = setup_chain();
         let (sk, pk) = make_keypair();
 
-        bc.accounts.credit("sender", 100_000_000);
+        bc.accounts.credit("sender", 100_000_000).unwrap();
 
         // Add 3 txs with different fees: low, high, medium
         let tx_low = Transaction::new(

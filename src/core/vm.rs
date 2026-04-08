@@ -51,8 +51,11 @@ impl SRX20Contract {
         if to.is_empty() || amount == 0 {
             return Err(SentrixError::InvalidTransaction("invalid mint params".to_string()));
         }
-        *self.balances.entry(to.to_string()).or_insert(0) += amount;
-        self.total_supply += amount;
+        let entry = self.balances.entry(to.to_string()).or_insert(0);
+        *entry = entry.checked_add(amount)
+            .ok_or_else(|| SentrixError::Internal("token balance overflow".to_string()))?;
+        self.total_supply = self.total_supply.checked_add(amount)
+            .ok_or_else(|| SentrixError::Internal("token supply overflow".to_string()))?;
         Ok(())
     }
 
@@ -64,8 +67,11 @@ impl SRX20Contract {
         if balance < amount {
             return Err(SentrixError::InsufficientBalance { have: balance, need: amount });
         }
-        *self.balances.get_mut(from).unwrap() -= amount;
-        self.total_supply -= amount;
+        let entry = self.balances.entry(from.to_string()).or_insert(0);
+        *entry = entry.checked_sub(amount)
+            .ok_or_else(|| SentrixError::Internal("token burn underflow".to_string()))?;
+        self.total_supply = self.total_supply.checked_sub(amount)
+            .ok_or_else(|| SentrixError::Internal("supply underflow".to_string()))?;
         Ok(())
     }
 
@@ -80,8 +86,13 @@ impl SRX20Contract {
         if balance < amount {
             return Err(SentrixError::InsufficientBalance { have: balance, need: amount });
         }
-        *self.balances.get_mut(from).unwrap() -= amount;
-        *self.balances.entry(to.to_string()).or_insert(0) += amount;
+        // Safe: checked balance >= amount above
+        let from_entry = self.balances.entry(from.to_string()).or_insert(0);
+        *from_entry = from_entry.checked_sub(amount)
+            .ok_or_else(|| SentrixError::Internal("transfer underflow".to_string()))?;
+        let to_entry = self.balances.entry(to.to_string()).or_insert(0);
+        *to_entry = to_entry.checked_add(amount)
+            .ok_or_else(|| SentrixError::Internal("transfer overflow".to_string()))?;
         Ok(())
     }
 
@@ -116,10 +127,18 @@ impl SRX20Contract {
         if balance < amount {
             return Err(SentrixError::InsufficientBalance { have: balance, need: amount });
         }
-        // Deduct allowance, balance, credit recipient
-        *self.allowances.get_mut(from).unwrap().get_mut(spender).unwrap() -= amount;
-        *self.balances.get_mut(from).unwrap() -= amount;
-        *self.balances.entry(to.to_string()).or_insert(0) += amount;
+        // Safe deductions (all pre-checked above)
+        let new_allowance = allowed.checked_sub(amount)
+            .ok_or_else(|| SentrixError::Internal("allowance underflow".to_string()))?;
+        self.allowances
+            .entry(from.to_string()).or_default()
+            .insert(spender.to_string(), new_allowance);
+        let from_entry = self.balances.entry(from.to_string()).or_insert(0);
+        *from_entry = from_entry.checked_sub(amount)
+            .ok_or_else(|| SentrixError::Internal("transfer_from underflow".to_string()))?;
+        let to_entry = self.balances.entry(to.to_string()).or_insert(0);
+        *to_entry = to_entry.checked_add(amount)
+            .ok_or_else(|| SentrixError::Internal("transfer_from overflow".to_string()))?;
         Ok(())
     }
 

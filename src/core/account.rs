@@ -48,9 +48,11 @@ impl AccountDB {
         self.accounts.get(address).map(|a| a.nonce).unwrap_or(0)
     }
 
-    pub fn credit(&mut self, address: &str, amount: u64) {
+    pub fn credit(&mut self, address: &str, amount: u64) -> SentrixResult<()> {
         let account = self.get_or_create(address);
-        account.balance += amount;
+        account.balance = account.balance.checked_add(amount)
+            .ok_or_else(|| SentrixError::Internal("balance overflow".to_string()))?;
+        Ok(())
     }
 
     pub fn transfer(
@@ -60,7 +62,8 @@ impl AccountDB {
         amount: u64,
         fee: u64,
     ) -> SentrixResult<()> {
-        let total = amount + fee;
+        let total = amount.checked_add(fee)
+            .ok_or_else(|| SentrixError::Internal("amount + fee overflow".to_string()))?;
         let from_balance = self.get_balance(from);
 
         if from_balance < total {
@@ -73,22 +76,25 @@ impl AccountDB {
         // Deduct from sender
         {
             let sender = self.get_or_create(from);
-            sender.balance -= total;
+            sender.balance = sender.balance.checked_sub(total)
+                .ok_or_else(|| SentrixError::Internal("balance underflow".to_string()))?;
             sender.nonce += 1;
         }
 
         // Credit recipient
-        self.credit(to, amount);
+        self.credit(to, amount)?;
 
         // Burn 50% of fee, credit 50% to validator (handled by caller)
         let burn_amount = fee / 2;
-        self.total_burned += burn_amount;
+        self.total_burned = self.total_burned.saturating_add(burn_amount);
 
         Ok(())
     }
 
-    pub fn apply_block_reward(&mut self, validator: &str, reward: u64, fee_share: u64) {
-        self.credit(validator, reward + fee_share);
+    pub fn apply_block_reward(&mut self, validator: &str, reward: u64, fee_share: u64) -> SentrixResult<()> {
+        let total = reward.checked_add(fee_share)
+            .ok_or_else(|| SentrixError::Internal("reward overflow".to_string()))?;
+        self.credit(validator, total)
     }
 
     pub fn total_supply(&self) -> u64 {
@@ -110,14 +116,14 @@ mod tests {
     #[test]
     fn test_credit() {
         let mut db = AccountDB::new();
-        db.credit("addr1", 1000);
+        db.credit("addr1", 1000).unwrap();
         assert_eq!(db.get_balance("addr1"), 1000);
     }
 
     #[test]
     fn test_transfer_success() {
         let mut db = AccountDB::new();
-        db.credit("alice", 10_000);
+        db.credit("alice", 10_000).unwrap();
         db.transfer("alice", "bob", 5_000, 100).unwrap();
         assert_eq!(db.get_balance("alice"), 4_900);
         assert_eq!(db.get_balance("bob"), 5_000);
@@ -127,7 +133,7 @@ mod tests {
     #[test]
     fn test_transfer_insufficient_balance() {
         let mut db = AccountDB::new();
-        db.credit("alice", 100);
+        db.credit("alice", 100).unwrap();
         let result = db.transfer("alice", "bob", 5_000, 100);
         assert!(result.is_err());
     }
@@ -135,7 +141,7 @@ mod tests {
     #[test]
     fn test_burn_tracking() {
         let mut db = AccountDB::new();
-        db.credit("alice", 10_000);
+        db.credit("alice", 10_000).unwrap();
         db.transfer("alice", "bob", 5_000, 200).unwrap();
         assert_eq!(db.total_burned, 100); // 50% of fee=200
     }

@@ -173,14 +173,20 @@ impl Node {
 
             match msg {
                 Message::Handshake { host, port, height, chain_id } => {
+                    // Validate chain_id matches
+                    let bc = blockchain.read().await;
+                    if chain_id != bc.chain_id {
+                        tracing::warn!("Rejected peer: chain_id mismatch (theirs: {}, ours: {})", chain_id, bc.chain_id);
+                        return Err(SentrixError::NetworkError(
+                            format!("chain_id mismatch: {} vs {}", chain_id, bc.chain_id)
+                        ));
+                    }
+
                     // Register peer
                     let peer = Peer { host: host.clone(), port, height, chain_id };
                     let peer_addr = peer.addr();
                     peers.write().await.insert(peer_addr.clone(), peer);
                     let _ = event_tx.send(NodeEvent::PeerConnected(peer_addr)).await;
-
-                    // Respond with our handshake
-                    let bc = blockchain.read().await;
                     let response = Message::Handshake {
                         host: "0.0.0.0".to_string(),
                         port: 0,
