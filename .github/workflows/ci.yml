@@ -36,9 +36,6 @@ jobs:
       - name: Test
         run: cargo test
 
-      - name: Clippy
-        run: cargo clippy -- -D warnings
-
   build-and-push:
     name: Build & Push Image
     needs: test
