@@ -2,9 +2,11 @@
 
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{RwLock, Mutex, mpsc};
 use std::sync::Arc;
 use std::collections::HashMap;
+use std::net::IpAddr;
+use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use crate::core::block::Block;
 use crate::core::blockchain::Blockchain;
@@ -13,6 +15,13 @@ use crate::types::error::{SentrixError, SentrixResult};
 
 pub const DEFAULT_PORT: u16 = 30303;
 pub const MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024; // 10MB
+
+// M-02 FIX: rate limiting and peer cap constants
+pub const MAX_CONNECTIONS_PER_IP: u32 = 5;
+pub const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
+pub const MAX_PEERS: usize = 50;
+
+pub type ConnectionCounts = Arc<Mutex<HashMap<IpAddr, (u32, Instant)>>>;
 
 // ── Message types ────────────────────────────────────────
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,6 +132,7 @@ impl Node {
 
     // ── Listener (accept incoming connections) ───────────
 
+    // M-02 FIX: rate limiting per IP + max peers cap
     pub async fn start_listener(
         port: u16,
         blockchain: SharedBlockchain,
@@ -133,11 +143,35 @@ impl Node {
         let listener = TcpListener::bind(&addr).await
             .map_err(|e| SentrixError::NetworkError(e.to_string()))?;
 
+        let connection_counts: ConnectionCounts = Arc::new(Mutex::new(HashMap::new()));
+
         tracing::info!("P2P listening on {}", addr);
 
         loop {
             match listener.accept().await {
                 Ok((stream, peer_addr)) => {
+                    // Fix 3: Max peers limit
+                    let peer_count = peers.read().await.len();
+                    if peer_count >= MAX_PEERS {
+                        tracing::warn!("max peers reached ({}), rejecting {}", MAX_PEERS, peer_addr);
+                        continue;
+                    }
+
+                    // Fix 1: Rate limiting per IP
+                    let peer_ip = peer_addr.ip();
+                    {
+                        let mut counts = connection_counts.lock().await;
+                        let entry = counts.entry(peer_ip).or_insert((0, Instant::now()));
+                        if entry.1.elapsed() > RATE_LIMIT_WINDOW {
+                            *entry = (0, Instant::now());
+                        }
+                        entry.0 += 1;
+                        if entry.0 > MAX_CONNECTIONS_PER_IP {
+                            tracing::warn!("rate limit exceeded for IP {}: {} connections in window", peer_ip, entry.0);
+                            continue;
+                        }
+                    }
+
                     tracing::info!("Peer connected: {}", peer_addr);
                     let bc = blockchain.clone();
                     let peers = peers.clone();
@@ -295,9 +329,17 @@ impl Node {
 
         Self::send_message(&mut stream, &handshake).await?;
 
-        // Read handshake response
+        // Read handshake response + verify chain_id
         match Self::read_message(&mut stream).await? {
             Message::Handshake { host, port, height, chain_id } => {
+                // M-02 FIX: verify chain_id on outbound connections too
+                let our_chain_id = self.blockchain.read().await.chain_id;
+                if chain_id != our_chain_id {
+                    return Err(SentrixError::NetworkError(
+                        format!("outbound peer {} chain_id mismatch: {} vs {}", addr, chain_id, our_chain_id)
+                    ));
+                }
+
                 let peer = Peer { host: host.clone(), port, height, chain_id };
                 let peer_addr = peer.addr();
                 self.peers.write().await.insert(peer_addr.clone(), peer);
@@ -336,6 +378,7 @@ impl Node {
 
     // ── Broadcast to all peers ───────────────────────────
 
+    // M-06 FIX: non-blocking broadcast with 5s timeout per peer
     pub async fn broadcast(&self, msg: &Message) {
         let peers = self.peers.read().await;
         let encoded = match Self::encode_message(msg) {
@@ -344,9 +387,24 @@ impl Node {
         };
 
         for (addr, _) in peers.iter() {
-            if let Ok(mut stream) = TcpStream::connect(addr).await {
-                let _ = stream.write_all(&encoded).await;
-            }
+            let data = encoded.clone();
+            let peer_addr = addr.clone();
+            tokio::spawn(async move {
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    TcpStream::connect(&peer_addr),
+                ).await {
+                    Ok(Ok(mut stream)) => {
+                        let _ = stream.write_all(&data).await;
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!("broadcast: connect to {} failed: {}", peer_addr, e);
+                    }
+                    Err(_) => {
+                        tracing::warn!("broadcast: connect to {} timed out", peer_addr);
+                    }
+                }
+            });
         }
     }
 
@@ -368,5 +426,83 @@ impl Node {
         self.peers.read().await.iter()
             .map(|(addr, p)| (addr.clone(), p.height))
             .collect()
+    }
+
+    /// M-02: Check if IP is rate limited (for testing)
+    pub fn check_rate_limit(
+        counts: &mut HashMap<IpAddr, (u32, Instant)>,
+        ip: IpAddr,
+    ) -> bool {
+        let entry = counts.entry(ip).or_insert((0, Instant::now()));
+        if entry.1.elapsed() > RATE_LIMIT_WINDOW {
+            *entry = (0, Instant::now());
+        }
+        entry.0 += 1;
+        entry.0 <= MAX_CONNECTIONS_PER_IP
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_m02_rate_limit_per_ip() {
+        let ip: IpAddr = "127.0.0.1".parse().unwrap();
+        let mut counts: HashMap<IpAddr, (u32, Instant)> = HashMap::new();
+
+        // First MAX_CONNECTIONS_PER_IP connections should pass
+        for _ in 0..MAX_CONNECTIONS_PER_IP {
+            assert!(Node::check_rate_limit(&mut counts, ip));
+        }
+
+        // Next connection should be rejected
+        assert!(!Node::check_rate_limit(&mut counts, ip));
+        assert!(!Node::check_rate_limit(&mut counts, ip));
+
+        // Different IP should still pass
+        let ip2: IpAddr = "192.168.1.1".parse().unwrap();
+        assert!(Node::check_rate_limit(&mut counts, ip2));
+    }
+
+    #[test]
+    fn test_m02_max_peers_constant() {
+        assert_eq!(MAX_PEERS, 50);
+        assert_eq!(MAX_CONNECTIONS_PER_IP, 5);
+    }
+
+    #[tokio::test]
+    async fn test_m02_chain_id_mismatch_rejected() {
+        // Create two blockchains with different chain IDs
+        let bc1 = crate::core::blockchain::Blockchain::new("admin".to_string());
+        let shared1: SharedBlockchain = Arc::new(RwLock::new(bc1));
+
+        let (tx1, _rx1) = mpsc::channel(16);
+        let node1 = Node::new("127.0.0.1".to_string(), 0, shared1.clone(), tx1);
+
+        // Start a listener on a random port
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        // Spawn listener that sends a handshake with wrong chain_id
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            // Read the incoming handshake
+            let _msg = Node::read_message(&mut stream).await.unwrap();
+            // Reply with wrong chain_id
+            let bad_handshake = Message::Handshake {
+                host: "127.0.0.1".to_string(),
+                port: 0,
+                height: 0,
+                chain_id: 9999, // wrong!
+            };
+            Node::send_message(&mut stream, &bad_handshake).await.unwrap();
+        });
+
+        // Node1 connects — should fail due to chain_id mismatch
+        let result = node1.connect_peer("127.0.0.1", port).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("chain_id mismatch"), "Expected chain_id error, got: {}", err);
     }
 }
