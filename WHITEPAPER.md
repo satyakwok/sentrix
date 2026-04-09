@@ -381,7 +381,7 @@ See [SECURITY.md](SECURITY.md) for responsible disclosure policy.
 ### 14.4 Official Channels
 
 - Website: sentrix.io *(coming soon)*
-- GitHub: github.com/satyakwok/sentrix-chain
+- GitHub: github.com/satyakwok/sentrix
 - Email: hello@sentrix.io *(coming soon)*
 
 ---

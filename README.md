@@ -67,8 +67,8 @@ Sentrix is **Ethereum-tooling compatible** — MetaMask, ethers.js, and web3.js 
 ### Build
 
 ```bash
-git clone https://github.com/satyakwok/sentrix-chain.git
-cd sentrix-chain
+git clone https://github.com/satyakwok/sentrix.git
+cd sentrix
 cargo build --release
 ```
 
@@ -455,7 +455,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## Community
 
 - Website: [sentrix.io](https://sentrix.io) *(coming soon)*
-- GitHub: [github.com/satyakwok/sentrix-chain](https://github.com/satyakwok/sentrix-chain)
+- GitHub: [github.com/satyakwok/sentrix](https://github.com/satyakwok/sentrix)
 - Email: hello@sentrix.io *(coming soon)*
 
 ---
