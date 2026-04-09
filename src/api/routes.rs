@@ -67,6 +67,15 @@ pub struct TokenBurnRequest {
     pub gas_fee: u64,
 }
 
+// H-05 FIX: Constant-time string comparison to prevent timing attacks
+pub fn constant_time_eq(a: &str, b: &str) -> bool {
+    use subtle::ConstantTimeEq;
+    if a.len() != b.len() {
+        return false;
+    }
+    a.as_bytes().ct_eq(b.as_bytes()).into()
+}
+
 // ── API key middleware ────────────────────────────────────
 async fn require_api_key(
     req: axum::http::Request<axum::body::Body>,
@@ -83,7 +92,8 @@ async fn require_api_key(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    if provided != required_key {
+    // H-05 FIX: constant-time comparison
+    if !constant_time_eq(provided, &required_key) {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
@@ -145,18 +155,47 @@ async fn chain_info(State(state): State<SharedState>) -> Json<serde_json::Value>
     Json(bc.chain_stats())
 }
 
-async fn get_blocks(State(state): State<SharedState>) -> Json<serde_json::Value> {
+// H-07 FIX: Paginated block listing (default 20, max 100, newest first)
+async fn get_blocks(
+    State(state): State<SharedState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
     let bc = state.read().await;
-    let blocks: Vec<serde_json::Value> = bc.chain.iter().map(|b| serde_json::json!({
-        "index": b.index,
-        "hash": b.hash,
-        "previous_hash": b.previous_hash,
-        "timestamp": b.timestamp,
-        "tx_count": b.tx_count(),
-        "validator": b.validator,
-        "merkle_root": b.merkle_root,
-    })).collect();
-    Json(serde_json::json!({ "blocks": blocks, "total": bc.chain.len() }))
+    let page: u64 = params.get("page").and_then(|p| p.parse().ok()).unwrap_or(0);
+    let limit: u64 = params.get("limit")
+        .and_then(|l| l.parse().ok())
+        .unwrap_or(20)
+        .min(100); // hard cap at 100
+
+    let total = bc.chain.len() as u64;
+    let start_skip = (page * limit) as usize;
+
+    let blocks: Vec<serde_json::Value> = bc.chain.iter()
+        .rev() // newest first
+        .skip(start_skip)
+        .take(limit as usize)
+        .map(|b| serde_json::json!({
+            "index": b.index,
+            "hash": b.hash,
+            "previous_hash": b.previous_hash,
+            "timestamp": b.timestamp,
+            "tx_count": b.tx_count(),
+            "validator": b.validator,
+            "merkle_root": b.merkle_root,
+        }))
+        .collect();
+
+    let has_more = (start_skip + blocks.len()) < total as usize;
+
+    Json(serde_json::json!({
+        "blocks": blocks,
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "has_more": has_more
+        }
+    }))
 }
 
 async fn get_block(
@@ -410,4 +449,26 @@ async fn get_address_info(
         "nonce": nonce,
         "tx_count": tx_count,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_h05_constant_time_eq() {
+        // Equal strings
+        assert!(constant_time_eq("abc123", "abc123"));
+        assert!(constant_time_eq("", ""));
+        assert!(constant_time_eq("sentrix-api-key-xyz", "sentrix-api-key-xyz"));
+
+        // Unequal strings (same length)
+        assert!(!constant_time_eq("abc123", "abc124"));
+        assert!(!constant_time_eq("aaaaaa", "bbbbbb"));
+
+        // Different lengths
+        assert!(!constant_time_eq("short", "longer_string"));
+        assert!(!constant_time_eq("abc", "ab"));
+        assert!(!constant_time_eq("", "x"));
+    }
 }

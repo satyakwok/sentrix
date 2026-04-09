@@ -118,20 +118,23 @@ enum ValidatorCommands {
         address: String,
         name: String,
         public_key: String,
+        /// Admin private key (prefer SENTRIX_ADMIN_KEY env var)
         #[arg(long)]
-        admin_key: String,
+        admin_key: Option<String>,
     },
     /// Remove a validator (admin only)
     Remove {
         address: String,
+        /// Admin private key (prefer SENTRIX_ADMIN_KEY env var)
         #[arg(long)]
-        admin_key: String,
+        admin_key: Option<String>,
     },
     /// Toggle validator active/inactive (admin only)
     Toggle {
         address: String,
+        /// Admin private key (prefer SENTRIX_ADMIN_KEY env var)
         #[arg(long)]
-        admin_key: String,
+        admin_key: Option<String>,
     },
     /// List all validators
     List,
@@ -145,7 +148,8 @@ enum TokenCommands {
         #[arg(long)] symbol: String,
         #[arg(long, default_value_t = 18)] decimals: u8,
         #[arg(long)] supply: u64,
-        #[arg(long)] deployer_key: String,
+        /// Deployer private key (prefer SENTRIX_DEPLOYER_KEY env var)
+        #[arg(long)] deployer_key: Option<String>,
         #[arg(long, default_value_t = 100_000)] fee: u64,
     },
     /// Transfer tokens
@@ -153,14 +157,16 @@ enum TokenCommands {
         #[arg(long)] contract: String,
         #[arg(long)] to: String,
         #[arg(long)] amount: u64,
-        #[arg(long)] from_key: String,
+        /// Sender private key (prefer SENTRIX_FROM_KEY env var)
+        #[arg(long)] from_key: Option<String>,
         #[arg(long, default_value_t = 10_000)] gas: u64,
     },
     /// Burn tokens (remove from circulation)
     Burn {
         #[arg(long)] contract: String,
         #[arg(long)] amount: u64,
-        #[arg(long)] from_key: String,
+        /// Sender private key (prefer SENTRIX_FROM_KEY env var)
+        #[arg(long)] from_key: Option<String>,
         #[arg(long, default_value_t = 10_000)] gas: u64,
     },
     /// Check token balance
@@ -205,19 +211,24 @@ async fn main() -> anyhow::Result<()> {
 
         Commands::Validator { action } => match action {
             ValidatorCommands::Add { address, name, public_key, admin_key } => {
-                cmd_validator_add(&address, &name, &public_key, &admin_key)?;
+                let key = resolve_key(admin_key, "SENTRIX_ADMIN_KEY", "admin key")?;
+                cmd_validator_add(&address, &name, &public_key, &key)?;
             }
             ValidatorCommands::Remove { address, admin_key } => {
-                cmd_validator_remove(&address, &admin_key)?;
+                let key = resolve_key(admin_key, "SENTRIX_ADMIN_KEY", "admin key")?;
+                cmd_validator_remove(&address, &key)?;
             }
             ValidatorCommands::Toggle { address, admin_key } => {
-                cmd_validator_toggle(&address, &admin_key)?;
+                let key = resolve_key(admin_key, "SENTRIX_ADMIN_KEY", "admin key")?;
+                cmd_validator_toggle(&address, &key)?;
             }
             ValidatorCommands::List => cmd_validator_list()?,
         },
 
         Commands::Start { validator_key, port, peers } => {
-            cmd_start(validator_key, port, peers).await?;
+            // H-04: validator_key can also come from env var
+            let resolved_key = validator_key.or_else(|| std::env::var("SENTRIX_VALIDATOR_KEY").ok());
+            cmd_start(resolved_key, port, peers).await?;
         }
 
         Commands::Chain { action } => match action {
@@ -228,13 +239,16 @@ async fn main() -> anyhow::Result<()> {
 
         Commands::Token { action } => match action {
             TokenCommands::Deploy { name, symbol, decimals, supply, deployer_key, fee } => {
-                cmd_token_deploy(&name, &symbol, decimals, supply, &deployer_key, fee)?;
+                let key = resolve_key(deployer_key, "SENTRIX_DEPLOYER_KEY", "deployer key")?;
+                cmd_token_deploy(&name, &symbol, decimals, supply, &key, fee)?;
             }
             TokenCommands::Transfer { contract, to, amount, from_key, gas } => {
-                cmd_token_transfer(&contract, &to, amount, &from_key, gas)?;
+                let key = resolve_key(from_key, "SENTRIX_FROM_KEY", "from key")?;
+                cmd_token_transfer(&contract, &to, amount, &key, gas)?;
             }
             TokenCommands::Burn { contract, amount, from_key, gas } => {
-                cmd_token_burn(&contract, amount, &from_key, gas)?;
+                let key = resolve_key(from_key, "SENTRIX_FROM_KEY", "from key")?;
+                cmd_token_burn(&contract, amount, &key, gas)?;
             }
             TokenCommands::Balance { contract, address } => {
                 cmd_token_balance(&contract, &address)?;
@@ -253,6 +267,16 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+// H-04 FIX: Resolve private key from CLI arg or env var, warn if CLI
+fn resolve_key(cli_arg: Option<String>, env_var: &str, label: &str) -> anyhow::Result<String> {
+    if let Some(ref key) = cli_arg {
+        eprintln!("WARNING: passing {} as CLI argument is insecure. Prefer {} env var.", label, env_var);
+        return Ok(key.clone());
+    }
+    std::env::var(env_var)
+        .map_err(|_| anyhow::anyhow!("{} required. Use --{} or set {} env var", label, label.replace(' ', "-"), env_var))
 }
 
 // ── Command implementations ──────────────────────────────

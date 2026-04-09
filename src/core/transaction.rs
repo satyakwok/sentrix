@@ -94,19 +94,19 @@ impl Transaction {
         self.from_address == COINBASE_ADDRESS
     }
 
-    // Canonical signing payload — includes chain_id for replay protection
+    // H-01 FIX: Canonical signing payload using BTreeMap for deterministic key ordering
+    // and serde_json for proper escaping of special characters
     pub fn signing_payload(&self) -> String {
-        format!(
-            r#"{{"amount":{},"chain_id":{},"data":"{}","fee":{},"from":"{}","nonce":{},"timestamp":{},"to":"{}"}}"#,
-            self.amount,
-            self.chain_id,
-            self.data,
-            self.fee,
-            self.from_address,
-            self.nonce,
-            self.timestamp,
-            self.to_address,
-        )
+        let mut map = std::collections::BTreeMap::new();
+        map.insert("amount", serde_json::Value::from(self.amount));
+        map.insert("chain_id", serde_json::Value::from(self.chain_id));
+        map.insert("data", serde_json::Value::from(self.data.as_str()));
+        map.insert("fee", serde_json::Value::from(self.fee));
+        map.insert("from", serde_json::Value::from(self.from_address.as_str()));
+        map.insert("nonce", serde_json::Value::from(self.nonce));
+        map.insert("timestamp", serde_json::Value::from(self.timestamp));
+        map.insert("to", serde_json::Value::from(self.to_address.as_str()));
+        serde_json::to_string(&map).unwrap()
     }
 
     pub fn compute_txid(&self) -> String {
@@ -303,5 +303,53 @@ mod tests {
         tx.from_address = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef".to_string();
         // Should fail: public key doesn't match from_address
         assert!(tx.verify().is_err());
+    }
+
+    #[test]
+    fn test_h01_signing_payload_canonical_and_escaped() {
+        let (sk, pk) = make_keypair();
+        let from = derive_addr(&pk);
+
+        // Test deterministic: same inputs → same payload
+        let tx1 = Transaction::new(
+            from.clone(), "0xbob".to_string(),
+            1_000_000, MIN_TX_FEE, 0, String::new(), TEST_CHAIN_ID, &sk, &pk,
+        ).unwrap();
+        let _tx2 = Transaction::new(
+            from.clone(), "0xbob".to_string(),
+            1_000_000, MIN_TX_FEE, 0, String::new(), TEST_CHAIN_ID, &sk, &pk,
+        ).unwrap();
+        // Timestamps differ, but let's verify the format is valid JSON
+        let payload = tx1.signing_payload();
+        let parsed: serde_json::Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(parsed["amount"], 1_000_000);
+        assert_eq!(parsed["chain_id"], TEST_CHAIN_ID);
+        assert_eq!(parsed["from"], from);
+
+        // Test special chars in data field are properly escaped (not injected)
+        let tx_xss = Transaction::new(
+            from.clone(), "0xbob".to_string(),
+            1_000_000, MIN_TX_FEE, 0,
+            r#"<script>alert("xss")</script>"#.to_string(),
+            TEST_CHAIN_ID, &sk, &pk,
+        ).unwrap();
+        let payload_xss = tx_xss.signing_payload();
+        // Must be valid JSON — serde_json escapes the quotes in data field
+        let parsed_xss: serde_json::Value = serde_json::from_str(&payload_xss).unwrap();
+        assert_eq!(parsed_xss["data"], r#"<script>alert("xss")</script>"#);
+
+        // Test with quote injection attempt in data
+        let tx_inject = Transaction::new(
+            from.clone(), "0xbob".to_string(),
+            1_000_000, MIN_TX_FEE, 0,
+            r#"","fee":0,"from":"attacker"#.to_string(),
+            TEST_CHAIN_ID, &sk, &pk,
+        ).unwrap();
+        let payload_inject = tx_inject.signing_payload();
+        // Must still be valid JSON with the injection attempt as a plain string value
+        let parsed_inject: serde_json::Value = serde_json::from_str(&payload_inject).unwrap();
+        assert!(parsed_inject["data"].as_str().unwrap().contains("attacker"));
+        // The "from" field must still be the real address, not "attacker"
+        assert_eq!(parsed_inject["from"], from);
     }
 }
