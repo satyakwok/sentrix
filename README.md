@@ -12,7 +12,7 @@
 
 [![Build](https://img.shields.io/badge/build-passing-brightgreen)]()
 [![Rust](https://img.shields.io/badge/rust-1.94-orange)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-86%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-105%20passing-brightgreen)]()
 [![Consensus](https://img.shields.io/badge/consensus-PoA-blue)]()
 [![License](https://img.shields.io/badge/license-BUSL--1.1-purple)](LICENSE)
 [![Chain ID](https://img.shields.io/badge/chain%20ID-7119-yellow)]()
@@ -374,20 +374,24 @@ This creates **deflationary pressure**: as network activity increases, more SRX 
 cargo test
 ```
 
-**86 tests** across 10 test suites:
+**105 tests** across 13 test suites:
 
 | Suite | Tests | Coverage |
 |---|---|---|
 | `core::merkle` | 5 | Merkle tree, SHA-256 |
 | `core::account` | 5 | AccountDB, transfers, burn tracking |
-| `core::transaction` | 7 | ECDSA sign/verify, nonce, chain_id replay protection |
-| `core::authority` | 7 | Validator management, round-robin, min validator check |
+| `core::transaction` | 8 | ECDSA sign/verify, nonce, chain_id, address↔pubkey binding, canonical payload |
+| `core::authority` | 9 | Validator management, round-robin, min validator, toggle guard |
 | `core::block` | 8 | Block creation, validation, chain links |
-| `core::blockchain` | 15 | Full engine: mempool, blocks, tokens, priority fee |
-| `core::vm` | 19 | SRX-20: deploy, transfer, approve, burn, dispatch |
+| `core::blockchain` | 19 | Full engine: mempool, blocks, tokens, priority fee, overflow, timestamp, pagination |
+| `core::vm` | 21 | SRX-20: deploy, transfer, approve race condition, burn, increase/decrease allowance |
 | `storage::db` | 8 | Persistence, per-block, hash index, migration |
 | `wallet::wallet` | 6 | Keygen, address derivation, import |
 | `wallet::keystore` | 6 | AES-256-GCM encrypt/decrypt, PBKDF2 600K |
+| `api::routes` | 1 | Constant-time API key comparison |
+| `api::jsonrpc` | 2 | RPC batch size limit |
+| `api::explorer` | 1 | HTML escape XSS prevention |
+| `network::node` | 3 | Rate limiting, max peers, chain_id handshake |
 
 ---
 
@@ -415,12 +419,30 @@ No partial state changes. No race conditions. All or nothing.
 
 ### Additional security measures
 
+- **Address↔pubkey binding**: transaction verify() checks that the public key maps to from_address
+- **Validator authorization**: add_block() verifies the block producer is the expected validator for that height
+- **Token API authentication**: POST token endpoints require private key proof of ownership
+- **HTML escaping**: block explorer sanitizes all user-controlled data to prevent XSS
+- **Canonical signing payload**: BTreeMap + serde_json for injection-proof JSON serialization
 - **Checked arithmetic**: all balance operations use `checked_add`/`checked_sub` — no integer overflow/underflow
 - **Chain ID replay protection**: transactions include `chain_id` in signing payload — cannot replay across networks
 - **API authentication**: POST endpoints require `X-API-Key` header (configurable via `SENTRIX_API_KEY` env var)
-- **Private key zeroization**: wallet secret keys are zeroed from memory on drop
+- **Constant-time API key comparison**: prevents timing-based key extraction attacks
+- **CORS**: configurable via `SENTRIX_CORS_ORIGIN` env var (default: allow all)
+- **Private key zeroization**: wallet secret keys are zeroed from memory on drop (no Clone)
+- **P2P rate limiting**: max 5 connections per IP per 60 seconds, max 50 peers total
 - **P2P chain ID validation**: peers with mismatched chain IDs are rejected on handshake
-- **Minimum validator count**: cannot remove the last active validator
+- **Block timestamp validation**: rejects blocks with timestamps before previous block or >15s in future
+- **Minimum validator count**: cannot remove or deactivate the last active validator
+- **RPC batch limit**: max 100 requests per JSON-RPC batch
+- **Paginated endpoints**: blocks and address history use limit/offset to prevent OOM
+- **ERC-20 approve race condition**: requires reset to 0 before changing allowance, plus increase/decrease helpers
+
+### Known limitations (Phase 1)
+
+> **Single admin key**: The current PoA implementation uses a single admin key for validator management. This is a known centralization risk accepted for Phase 1. **Mitigation planned**: multi-sig admin requiring 2/3 signatures (Phase 3). Until then, store the admin key in a hardware wallet or HSM — never on the node server.
+
+> **Full chain in memory**: The entire chain is loaded into RAM. For large chains (>100K blocks), consider archival strategies. **Mitigation planned**: state pruning + archival storage (Phase 4).
 
 ### Reporting vulnerabilities
 
@@ -433,7 +455,8 @@ See [SECURITY.md](SECURITY.md) for responsible disclosure policy.
 - [x] **Phase 1** — PoA private chain (core engine, wallets, storage, API)
 - [x] **Phase 2a** — SRX-20 tokens, block explorer, JSON-RPC, per-block storage
 - [x] **Phase 2b** — Full P2P networking (listener, handler, sync, broadcast)
-- [x] **Phase 2c** — Security audit + all fixes (checked arithmetic, chain_id, zeroize, API auth)
+- [x] **Phase 2c** — Security audit v1 + all fixes (checked arithmetic, chain_id, zeroize, API auth)
+- [x] **Phase 2d** — Security audit v2: 24 issues found, 21 fixed (4C+7H+6M+4L), 105 tests
 - [ ] **Phase 3** — DPoS/PoS transition, staking, governance, wallet web UI
 - [ ] **Phase 4** — Smart contract VM, SDKs, cross-chain bridge, mobile wallet
 

@@ -11,6 +11,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tower_http::cors::{CorsLayer, Any};
 use crate::core::blockchain::Blockchain;
 use crate::core::transaction::Transaction;
 use crate::wallet::wallet::Wallet;
@@ -102,6 +103,39 @@ async fn require_api_key(
 
 // ── Router ───────────────────────────────────────────────
 pub fn create_router(state: SharedState) -> Router {
+    // I-01 FIX: CORS layer — configurable via SENTRIX_CORS_ORIGIN env var
+    let cors = match std::env::var("SENTRIX_CORS_ORIGIN") {
+        Ok(origin) if !origin.is_empty() && origin != "*" => {
+            CorsLayer::new()
+                .allow_origin(
+                    origin.parse::<axum::http::HeaderValue>()
+                        .unwrap_or(axum::http::HeaderValue::from_static("*"))
+                )
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::OPTIONS,
+                ])
+                .allow_headers([
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::header::HeaderName::from_static("x-api-key"),
+                ])
+        }
+        _ => {
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::OPTIONS,
+                ])
+                .allow_headers([
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::header::HeaderName::from_static("x-api-key"),
+                ])
+        }
+    };
+
     // Public routes (GET — no auth needed)
     let public = Router::new()
         .route("/health",                    get(health))
@@ -132,6 +166,7 @@ pub fn create_router(state: SharedState) -> Router {
     public
         .merge(protected)
         .nest("/explorer", explorer_router(state.clone()))
+        .layer(cors)
         .with_state(state)
 }
 
