@@ -3,7 +3,7 @@
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use crate::api::routes::SharedState;
+use crate::api::routes::{SharedState, ApiKey};
 
 // ── JSON-RPC types ───────────────────────────────────────
 #[derive(Debug, Deserialize)]
@@ -202,6 +202,7 @@ const MAX_BATCH_SIZE: usize = 100;
 
 // ── Smart dispatcher (single + batch) ────────────────────
 pub async fn rpc_dispatcher(
+    _auth: ApiKey,
     State(state): State<SharedState>,
     body: axum::body::Bytes,
 ) -> axum::response::Response {
@@ -273,6 +274,7 @@ mod tests {
         let body = axum::body::Bytes::from(serde_json::to_vec(&requests).unwrap());
 
         let response = rpc_dispatcher(
+            ApiKey,
             axum::extract::State(state),
             body,
         ).await;
