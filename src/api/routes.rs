@@ -3,10 +3,9 @@
 use axum::{
     Router,
     routing::{get, post},
-    extract::{State, Path},
+    extract::{State, Path, FromRequestParts},
     Json,
-    http::StatusCode,
-    middleware,
+    http::{StatusCode, request::Parts},
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -17,6 +16,32 @@ use crate::core::transaction::{Transaction, TokenOp, TOKEN_OP_ADDRESS};
 use crate::wallet::wallet::Wallet;
 use crate::api::jsonrpc::rpc_dispatcher;
 use crate::api::explorer;
+
+// ── API key extractor ─────────────────────────────────────
+// Add `_auth: ApiKey` as the first parameter of any handler that needs auth.
+// Returns 401 if SENTRIX_API_KEY is set and the request doesn't match.
+pub struct ApiKey;
+
+#[axum::async_trait]
+impl<S: Send + Sync> FromRequestParts<S> for ApiKey {
+    type Rejection = StatusCode;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let required = match std::env::var("SENTRIX_API_KEY") {
+            Ok(k) if !k.is_empty() => k,
+            _ => return Ok(ApiKey), // no key set → always allow
+        };
+        let provided = parts.headers
+            .get("X-API-Key")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if constant_time_eq(provided, &required) {
+            Ok(ApiKey)
+        } else {
+            Err(StatusCode::UNAUTHORIZED)
+        }
+    }
+}
 
 pub type SharedState = Arc<RwLock<Blockchain>>;
 
@@ -77,29 +102,6 @@ pub fn constant_time_eq(a: &str, b: &str) -> bool {
     a.as_bytes().ct_eq(b.as_bytes()).into()
 }
 
-// ── API key middleware ────────────────────────────────────
-async fn require_api_key(
-    req: axum::http::Request<axum::body::Body>,
-    next: middleware::Next,
-) -> Result<axum::response::Response, StatusCode> {
-    // If SENTRIX_API_KEY not set, skip auth (dev mode)
-    let required_key = match std::env::var("SENTRIX_API_KEY") {
-        Ok(k) if !k.is_empty() => k,
-        _ => return Ok(next.run(req).await),
-    };
-
-    let provided = req.headers()
-        .get("X-API-Key")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    // H-05 FIX: constant-time comparison
-    if !constant_time_eq(provided, &required_key) {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-
-    Ok(next.run(req).await)
-}
 
 // ── Router ───────────────────────────────────────────────
 pub fn create_router(state: SharedState) -> Router {
@@ -136,12 +138,10 @@ pub fn create_router(state: SharedState) -> Router {
         }
     };
 
-    // Build a single router. Apply auth middleware directly on each protected
-    // POST MethodRouter via .layer() — avoids merge-bleed in axum 0.7.
-    let auth = middleware::from_fn(require_api_key);
-
+    // Single router — auth is enforced via the ApiKey extractor embedded
+    // in each protected handler's parameter list, not via route layers.
     Router::new()
-        // ── Public GET routes (no auth) ──────────────────────────
+        // ── Public GET routes ────────────────────────────────────
         .route("/",                               get(root))
         .route("/health",                         get(health))
         .route("/chain/info",                     get(chain_info))
@@ -156,6 +156,7 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/blocks",                         get(get_blocks))
         .route("/blocks/:height",                 get(get_block))
         .route("/wallets/:address",               get(get_wallet_info))
+        .route("/transactions",                   get(list_transactions).post(send_transaction))
         .route("/transactions/:txid",             get(get_transaction))
         // ── Token endpoints ──────────────────────────────────────
         .route("/tokens",                         get(list_tokens))
@@ -163,22 +164,14 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/tokens/:contract/balance/:addr", get(get_token_balance))
         .route("/tokens/:contract/holders",       get(get_token_holders_list))
         .route("/tokens/:contract/trades",        get(get_token_trades_list))
+        .route("/tokens/deploy",                  post(deploy_token))
+        .route("/tokens/:contract/transfer",      post(token_transfer))
+        .route("/tokens/:contract/burn",          post(token_burn))
         // ── Address history ──────────────────────────────────────
         .route("/address/:address/history",       get(get_address_history))
         .route("/address/:address/info",          get(get_address_info))
-        // ── /transactions: GET public, POST protected ────────────
-        .route("/transactions",
-            get(list_transactions)
-            .post(send_transaction).layer(auth.clone()))
-        // ── Protected POST routes (auth per method-router) ───────
-        .route("/tokens/deploy",
-            post(deploy_token).layer(auth.clone()))
-        .route("/tokens/:contract/transfer",
-            post(token_transfer).layer(auth.clone()))
-        .route("/tokens/:contract/burn",
-            post(token_burn).layer(auth.clone()))
-        .route("/rpc",
-            post(rpc_dispatcher).layer(auth))
+        // ── RPC ──────────────────────────────────────────────────
+        .route("/rpc",                            post(rpc_dispatcher))
         // ── Explorer ─────────────────────────────────────────────
         .nest("/explorer", explorer_router(state.clone()))
         .layer(cors)
@@ -309,6 +302,7 @@ async fn get_nonce(
 }
 
 async fn send_transaction(
+    _auth: ApiKey,
     State(state): State<SharedState>,
     Json(req): Json<SendTxRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
@@ -406,6 +400,7 @@ async fn get_token_balance(
 }
 
 async fn deploy_token(
+    _auth: ApiKey,
     State(state): State<SharedState>,
     Json(req): Json<DeployTokenRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
@@ -446,6 +441,7 @@ async fn deploy_token(
 }
 
 async fn token_transfer(
+    _auth: ApiKey,
     State(state): State<SharedState>,
     Path(contract): Path<String>,
     Json(req): Json<TokenTransferRequest>,
@@ -486,6 +482,7 @@ async fn token_transfer(
 }
 
 async fn token_burn(
+    _auth: ApiKey,
     State(state): State<SharedState>,
     Path(contract): Path<String>,
     Json(req): Json<TokenBurnRequest>,
