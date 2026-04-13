@@ -126,16 +126,15 @@ jobs:
           ssh -i ~/.ssh/id_rsa_vps2 "$VPS2_USER@$VPS2_HOST" "
             sudo mv /tmp/sentrix_new /opt/sentrix/sentrix
             sudo chmod +x /opt/sentrix/sentrix
-            SERVICE=\$(systemctl list-units --type=service --no-legend 2>/dev/null | grep -i sentrix | awk '{print \$1}' | head -1)
-            if [ -n \"\$SERVICE\" ]; then
-              sudo systemctl restart \"\$SERVICE\"
-              sleep 2
-              systemctl is-active \"\$SERVICE\"
+            SERVICES=\$(systemctl list-units --type=service --no-legend 2>/dev/null | grep -i 'sentrix-val' | awk '{print \$1}')
+            if [ -n \"\$SERVICES\" ]; then
+              for svc in \$SERVICES; do
+                echo \"Restarting \$svc...\"
+                sudo systemctl restart \"\$svc\"
+                sleep 1
+                systemctl is-active \"\$svc\"
+              done
             else
-              sudo pkill -f '/opt/sentrix/sentrix' || true
-              sleep 1
-              sudo nohup /opt/sentrix/sentrix >> /var/log/sentrix.log 2>&1 &
-              sleep 2
-              pgrep -f '/opt/sentrix/sentrix' && echo 'active' || (echo 'failed to start'; exit 1)
+              echo 'No sentrix-val services found, skipping restart'
             fi
           "
