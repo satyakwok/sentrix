@@ -148,6 +148,9 @@ impl Storage {
         self.put(&key, block)?;
         let hash_key = format!("hash:{}", block.hash);
         self.put(&hash_key, &block.index)?;
+        // Keep height key current so init_trie() loads the correct trie root on restart.
+        // Critical for P2P sync path: save_blockchain() is NOT called per-block there.
+        self.save_height(block.index)?;
         self.flush()?;
         Ok(())
     }
@@ -195,6 +198,22 @@ impl Storage {
 
     pub fn clear(&self) -> SentrixResult<()> {
         self.db.clear()
+            .map_err(|e| SentrixError::StorageError(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Drop and re-create the three trie named trees, clearing all trie state.
+    /// On next startup init_trie() will detect no committed root and backfill from AccountDB.
+    pub fn reset_trie(&self) -> SentrixResult<()> {
+        for tree_name in &["trie_nodes", "trie_values", "trie_roots"] {
+            self.db
+                .drop_tree(tree_name)
+                .map_err(|e| SentrixError::StorageError(
+                    format!("failed to drop {}: {}", tree_name, e)
+                ))?;
+        }
+        self.db
+            .flush()
             .map_err(|e| SentrixError::StorageError(e.to_string()))?;
         Ok(())
     }
