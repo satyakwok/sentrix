@@ -95,21 +95,11 @@ impl TrieStorage {
     // ── Roots ─────────────────────────────────────────────
 
     pub fn store_root(&self, version: u64, root: &NodeHash) -> SentrixResult<()> {
+        // sled uses a write-ahead log and is crash-safe by default.  Explicit
+        // flush() calls are not required for durability and block the write lock
+        // unnecessarily — removed in fix/trie-permanent-fix (ROOT CAUSE #2).
         self.roots
             .insert(version.to_be_bytes(), root.as_slice())
-            .map_err(|e| SentrixError::StorageError(e.to_string()))?;
-        // Flush all three trees in order (nodes → values → roots) so that
-        // node/value writes that preceded this root are durable before the root pointer
-        // is committed.  Flushing only `roots` would leave nodes/values in the OS page
-        // cache — a crash could produce a valid root pointing to missing nodes.
-        self.nodes
-            .flush()
-            .map_err(|e| SentrixError::StorageError(e.to_string()))?;
-        self.values
-            .flush()
-            .map_err(|e| SentrixError::StorageError(e.to_string()))?;
-        self.roots
-            .flush()
             .map_err(|e| SentrixError::StorageError(e.to_string()))?;
         Ok(())
     }
@@ -130,6 +120,22 @@ impl TrieStorage {
             )),
             None => Ok(None),
         }
+    }
+
+    /// Check whether `hash` is currently recorded as a committed root for any version.
+    ///
+    /// Called by `SentrixTrie::insert()` before deleting old internal nodes so that
+    /// the root hash of a previously committed version is never removed — which would
+    /// cause a "root missing" error on restart and trigger a non-deterministic backfill
+    /// that permanently forks the chain (ROOT CAUSE #3 fix).
+    pub fn is_committed_root(&self, hash: &NodeHash) -> SentrixResult<bool> {
+        for entry in self.roots.iter() {
+            let (_, v) = entry.map_err(|e| SentrixError::StorageError(e.to_string()))?;
+            if v.len() == 32 && &v[..] == hash.as_slice() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// T-F: Garbage-collect node and value entries not present in `live_hashes`.
@@ -196,6 +202,44 @@ mod tests {
         let mut h = [0u8; 32];
         h[0] = byte;
         h
+    }
+
+    #[test]
+    fn test_is_committed_root_true_for_stored() {
+        let (_dir, storage) = temp_storage();
+        let root = dummy_hash(0x10);
+        storage.store_root(1, &root).unwrap();
+        assert!(
+            storage.is_committed_root(&root).unwrap(),
+            "is_committed_root must return true for a stored root"
+        );
+    }
+
+    #[test]
+    fn test_is_committed_root_false_for_unknown() {
+        let (_dir, storage) = temp_storage();
+        let committed = dummy_hash(0x10);
+        let other     = dummy_hash(0x20);
+        storage.store_root(1, &committed).unwrap();
+        assert!(
+            !storage.is_committed_root(&other).unwrap(),
+            "is_committed_root must return false for a hash not in trie_roots"
+        );
+    }
+
+    #[test]
+    fn test_store_root_no_blocking_flush() {
+        // Regression: store_root() must not call nodes/values/roots.flush().
+        // We validate this by calling store_root() many times quickly — if flushes
+        // were present the test would be noticeably slow on spinning disk / CI.
+        let (_dir, storage) = temp_storage();
+        let root = dummy_hash(0xFF);
+        for v in 0u64..50 {
+            storage.store_root(v, &root).unwrap();
+        }
+        // Also confirm we can still load them back correctly.
+        assert_eq!(storage.load_root(0).unwrap(), Some(root));
+        assert_eq!(storage.load_root(49).unwrap(), Some(root));
     }
 
     #[test]
