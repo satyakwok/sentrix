@@ -531,7 +531,7 @@ async fn cmd_start(
                     let _ = storage_clone.save_block(&block_clone);
                     {
                         let bc = shared_clone.read().await;
-                        let _ = storage_clone.save_blockchain(&*bc);
+                        let _ = storage_clone.save_blockchain(&bc);
                     }
                     lp2p_clone.broadcast_block(&block_clone).await;
                 }
@@ -607,8 +607,15 @@ async fn cmd_start(
         #[cfg(unix)]
         {
             use tokio::signal::unix::{signal, SignalKind};
-            let mut sigterm = signal(SignalKind::terminate())
-                .expect("failed to install SIGTERM handler");
+            let mut sigterm = match signal(SignalKind::terminate()) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("Failed to install SIGTERM handler: {} — shutdown via Ctrl+C only", e);
+                    let _ = tokio::signal::ctrl_c().await;
+                    tracing::info!("SIGINT received — shutting down");
+                    return;
+                }
+            };
             tokio::select! {
                 _ = sigterm.recv() => tracing::info!("SIGTERM received — shutting down"),
                 _ = tokio::signal::ctrl_c() => tracing::info!("SIGINT received — shutting down"),
@@ -621,7 +628,7 @@ async fn cmd_start(
         }
         tracing::info!("Graceful shutdown: saving state to disk...");
         let bc = shutdown_shared.read().await;
-        if let Err(e) = shutdown_storage.save_blockchain(&*bc) {
+        if let Err(e) = shutdown_storage.save_blockchain(&bc) {
             tracing::error!("Failed to save state on shutdown: {}", e);
         } else {
             tracing::info!("State saved. Node exiting cleanly.");
