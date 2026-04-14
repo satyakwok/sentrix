@@ -557,6 +557,8 @@ See [SECURITY.md](SECURITY.md) for responsible disclosure policy.
 - [x] **Security Audit V7** — 15 findings, all fixed; STATE_ROOT_FORK_HEIGHT=100K; trie errors fatal (PR #57)
 - [x] **Chain Recovery Tools** — `sentrix chain reset-trie`; stale-height fix; deterministic backfill (PR #58-#60)
 - [x] **ChainSync Persistence** — P2P-synced blocks persisted to sled immediately; prevents state divergence on restart (PR #61)
+- [x] **Graceful Recovery** — load_blockchain handles missing blocks gracefully; adjusts height and re-syncs from peers (PR #62)
+- [x] **CI/CD Graceful Deploy** — stop services before binary replace; prevents mid-trie-write kills (PR #63)
 - [ ] **Phase 2** — DPoS + BFT Finality + EVM compatibility
 - [ ] **Phase 3** — Sharding, cross-chain bridge, governance
 - [ ] **Phase 4** — SDK, mobile wallet, DEX, NFT platform
