@@ -85,6 +85,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Post-0.1.0 Incremental] — 2026-04-14
 
+### PR #63 — fix(ci): graceful deploy — stop before binary replace
+- `.github/workflows/ci.yml`: replace `systemctl restart` with graceful flow:
+  1. `systemctl stop` — wait for current block to finish (default 90s timeout)
+  2. Replace binary (process already stopped)
+  3. `systemctl start` — fresh start from clean state
+- VPS2: stop ALL 5 validators before replacing shared binary, then start all
+- **Why**: previous `mv + restart` killed processes mid-trie-write → state corruption → chain fork incident 2026-04-14
+- **Impact**: first graceful deploy succeeded — no crash loop, chain advancing at 101,857+
+
+### PR #62 — fix(storage): graceful recovery when blocks missing in sled
+- `src/storage/db.rs` (`load_blockchain()`): when a block is missing in the sliding window, instead of crashing, adjust height to last available block and log a warning; node re-syncs from peers on next startup
+- Handles edge case where first block in window is missing: scan backwards to find highest existing block
+- **Why**: pre-PR#61 `sync_from_peer()` advanced sled height without persisting block data; on restart, `load_blockchain()` crashed with `missing block N during chain reconstruction` → infinite crash loop
+- **Impact**: VPS1 crash loop after PR #61 deploy immediately resolved
+
 ### PR #61 — fix(sync): persist P2P-synced blocks to sled
 - `src/network/sync.rs`: add `storage: Arc<Storage>` parameter to `sync_from_peer()`; call `storage.save_block()` after each successful `add_block()` in the sync loop
 - `src/main.rs`: update both call sites (NodeEvent::SyncNeeded + periodic 30s sync) to pass `Arc<Storage>` to `sync_from_peer()`
