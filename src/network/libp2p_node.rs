@@ -123,6 +123,24 @@ impl LibP2pNode {
         let _ = self.cmd_tx.send(SwarmCommand::Broadcast(req)).await;
     }
 
+    /// Broadcast a BFT proposal to all verified peers.
+    pub async fn broadcast_bft_proposal(&self, proposal: &crate::core::bft_messages::Proposal) {
+        let req = SentrixRequest::BftProposal { proposal: Box::new(proposal.clone()) };
+        let _ = self.cmd_tx.send(SwarmCommand::Broadcast(req)).await;
+    }
+
+    /// Broadcast a BFT prevote to all verified peers.
+    pub async fn broadcast_bft_prevote(&self, prevote: &crate::core::bft_messages::Prevote) {
+        let req = SentrixRequest::BftPrevote { prevote: prevote.clone() };
+        let _ = self.cmd_tx.send(SwarmCommand::Broadcast(req)).await;
+    }
+
+    /// Broadcast a BFT precommit to all verified peers.
+    pub async fn broadcast_bft_precommit(&self, precommit: &crate::core::bft_messages::Precommit) {
+        let req = SentrixRequest::BftPrecommit { precommit: precommit.clone() };
+        let _ = self.cmd_tx.send(SwarmCommand::Broadcast(req)).await;
+    }
+
     /// Re-dial bootstrap peers that may have disconnected.
     pub async fn reconnect_peers(&self, addrs: Vec<Multiaddr>) {
         let _ = self.cmd_tx.send(SwarmCommand::ReconnectPeers(addrs)).await;
@@ -639,6 +657,24 @@ async fn on_inbound_request(
                 channel,
                 SentrixResponse::Pong { height },
             );
+        }
+
+        // ── BFT Proposal ────────────────────────────────
+        SentrixRequest::BftProposal { proposal } => {
+            let _ = swarm.behaviour_mut().rr.send_response(channel, SentrixResponse::Ack);
+            let _ = event_tx.send(NodeEvent::BftProposal(*proposal)).await;
+        }
+
+        // ── BFT Prevote ─────────────────────────────────
+        SentrixRequest::BftPrevote { prevote } => {
+            let _ = swarm.behaviour_mut().rr.send_response(channel, SentrixResponse::Ack);
+            let _ = event_tx.send(NodeEvent::BftPrevote(prevote)).await;
+        }
+
+        // ── BFT Precommit ───────────────────────────────
+        SentrixRequest::BftPrecommit { precommit } => {
+            let _ = swarm.behaviour_mut().rr.send_response(channel, SentrixResponse::Ack);
+            let _ = event_tx.send(NodeEvent::BftPrecommit(precommit)).await;
         }
     }
 }

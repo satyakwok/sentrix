@@ -73,6 +73,12 @@ pub enum NodeEvent {
     PeerConnected(String),
     PeerDisconnected(String),
     SyncNeeded { peer_addr: String, peer_height: u64 },
+    /// BFT: received a proposal from the network
+    BftProposal(crate::core::bft_messages::Proposal),
+    /// BFT: received a prevote from the network
+    BftPrevote(crate::core::bft_messages::Prevote),
+    /// BFT: received a precommit from the network
+    BftPrecommit(crate::core::bft_messages::Precommit),
 }
 
 // ── Node ─────────────────────────────────────────────────

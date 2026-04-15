@@ -582,6 +582,16 @@ async fn cmd_start(
                 NodeEvent::SyncNeeded { peer_addr, peer_height } => {
                     tracing::info!("Sync needed from {} (height: {})", peer_addr, peer_height);
                 }
+                // BFT events — handled by BFT state machine in Voyager mode (future)
+                NodeEvent::BftProposal(p) => {
+                    tracing::debug!("BFT proposal received: height={} round={}", p.height, p.round);
+                }
+                NodeEvent::BftPrevote(v) => {
+                    tracing::debug!("BFT prevote received: height={} round={}", v.height, v.round);
+                }
+                NodeEvent::BftPrecommit(c) => {
+                    tracing::debug!("BFT precommit received: height={} round={}", c.height, c.round);
+                }
             }
         }
     });
