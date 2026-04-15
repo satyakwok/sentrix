@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::block::Block;
 use crate::core::transaction::Transaction;
+use crate::core::bft_messages::{Proposal, Prevote, Precommit};
 
 // ── Protocol identifier ──────────────────────────────────
 /// Sent as the protocol string during Noise handshake and Identify.
@@ -52,6 +53,12 @@ pub enum SentrixRequest {
     GetHeight,
     /// Liveness probe.
     Ping,
+    /// BFT: block proposal from the round proposer
+    BftProposal { proposal: Box<Proposal> },
+    /// BFT: prevote for a block (or nil)
+    BftPrevote { prevote: Prevote },
+    /// BFT: precommit for a block (or nil)
+    BftPrecommit { precommit: Precommit },
 }
 
 /// Responses returned by a peer for the above requests.
@@ -66,7 +73,7 @@ pub enum SentrixResponse {
     HeightResponse { height: u64 },
     /// Answer to `Ping`.
     Pong { height: u64 },
-    /// Generic acknowledgement for fire-and-forget messages (NewBlock, NewTx).
+    /// Generic acknowledgement for fire-and-forget messages (NewBlock, NewTx, BFT).
     Ack,
 }
 
