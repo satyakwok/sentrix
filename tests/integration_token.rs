@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::expect_used, clippy::unwrap_used)]
 // integration_token.rs — SRX-20 token deploy + transfer + burn + mint tests
 // All token operations go through the standard mempool → add_block path (no shortcuts).
 

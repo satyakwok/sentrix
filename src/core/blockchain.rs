@@ -1132,7 +1132,7 @@ mod tests {
         // Use MIN_TX_FEE which is even (10_000); double it to get odd total by using 3 txs
         // Instead, verify the burn formula directly: odd total_fee burns more
         let odd_fee: u64 = MIN_TX_FEE + 1; // 10001 — odd
-        let burn = (odd_fee + 1) / 2;
+        let burn = odd_fee.div_ceil(2);
         let validator_share = odd_fee - burn;
         // burn + validator_share must equal odd_fee exactly (no sentri lost)
         assert_eq!(burn + validator_share, odd_fee);

@@ -186,7 +186,7 @@ mod tests {
         // For any fee, burn + validator_share must equal fee.
         // burn = (fee+1)/2, validator = fee - burn = fee/2 (floor)
         for fee in [0u64, 1, 2, 3, 7, 99, 100, 1_000_001] {
-            let burn = (fee + 1) / 2;
+            let burn = fee.div_ceil(2);
             let validator = fee - burn;
             assert_eq!(burn + validator, fee, "fee={fee} not fully distributed");
         }

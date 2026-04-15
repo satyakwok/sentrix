@@ -460,7 +460,7 @@ mod tests {
         let root = dummy_hash(0xAA);
         // Write directly to trie_roots without using TrieStorage (simulates old data)
         let old_roots = db.open_tree("trie_roots").unwrap();
-        old_roots.insert(&1u64.to_be_bytes(), &root[..]).unwrap();
+        old_roots.insert(1u64.to_be_bytes(), &root[..]).unwrap();
         drop(old_roots);
         drop(db);
 

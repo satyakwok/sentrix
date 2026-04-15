@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::expect_used, clippy::unwrap_used)]
 // integration_mempool.rs — Mempool stress tests
 // Covers: per-sender limit, global size limit, TTL rejection, fee ordering,
 // mempool clearance after block production.

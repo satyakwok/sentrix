@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::expect_used, clippy::unwrap_used)]
 // integration_chain_validation.rs — Chain validation and block rejection tests
 //
 // Tests:

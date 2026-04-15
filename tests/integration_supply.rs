@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::expect_used, clippy::unwrap_used)]
 // integration_supply.rs — Conservation of value (supply invariant) tests
 //
 // The fundamental invariant of the Sentrix chain:

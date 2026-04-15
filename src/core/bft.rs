@@ -766,7 +766,7 @@ mod tests {
             signature: vec![],
         };
 
-        let a1 = engine.on_prevote_weighted(&pv, 100);
+        let _a1 = engine.on_prevote_weighted(&pv, 100);
         let a2 = engine.on_prevote_weighted(&pv, 100); // duplicate
         // Second one should be Wait (ignored)
         assert!(matches!(a2, BftAction::Wait));

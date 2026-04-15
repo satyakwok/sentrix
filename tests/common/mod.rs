@@ -1,5 +1,5 @@
 // tests/common/mod.rs — Shared helpers for Sentrix integration tests
-#![allow(dead_code)]
+#![allow(dead_code, clippy::expect_used, clippy::unwrap_used)]
 
 use sentrix::core::blockchain::{Blockchain, CHAIN_ID, TOTAL_PREMINE, BLOCK_REWARD};
 use sentrix::core::transaction::Transaction;
