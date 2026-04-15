@@ -20,7 +20,15 @@ pub const BLOCK_REWARD: u64       = 100_000_000;               // 1 SRX in sentr
 pub const HALVING_INTERVAL: u64   = 42_000_000;                 // blocks
 pub const BLOCK_TIME_SECS: u64    = 3;
 pub const MAX_TX_PER_BLOCK: usize = 100;
-pub const CHAIN_ID: u64           = 7119;
+pub const CHAIN_ID: u64           = 7119; // default; overridable via SENTRIX_CHAIN_ID env
+
+/// Read chain_id from SENTRIX_CHAIN_ID env var, fallback to 7119.
+pub fn get_chain_id() -> u64 {
+    std::env::var("SENTRIX_CHAIN_ID")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(CHAIN_ID)
+}
 // Hash algorithm version — reserved for future hash algorithm migration
 pub const HASH_VERSION: u8        = 1; // 1 = SHA-256 (current)
 
@@ -87,7 +95,7 @@ impl Blockchain {
             contracts: ContractRegistry::new(),
             mempool: VecDeque::new(),
             total_minted: 0,
-            chain_id: CHAIN_ID,
+            chain_id: get_chain_id(),
             state_trie: None,
         };
         bc.initialize_genesis();

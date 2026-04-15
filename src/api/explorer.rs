@@ -233,13 +233,14 @@ const CHART_SECTION: &str = r#"
 </script>"#;
 
 fn page(title: &str, body: &str) -> Html<String> {
+    let chain_id = crate::core::blockchain::get_chain_id();
     Html(format!(r#"<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>{title} — Sentrix Explorer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>{CSS}</style></head><body>
 <header><div class="container">
 <h1>⬡ Sentrix Explorer</h1>
-<span>Chain ID: 7119 &nbsp;|&nbsp; Sentrix</span>
+<span>Chain ID: {chain_id} &nbsp;|&nbsp; Sentrix</span>
 <div class="search-bar">
   <input id="srx-search" type="text" placeholder="Search by TX hash, block height, or address" autocomplete="off" />
   <button onclick="srxSearch()">Search</button>
