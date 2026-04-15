@@ -4,7 +4,7 @@
 
 [![Build](https://github.com/satyakwok/sentrix/actions/workflows/ci.yml/badge.svg)](https://github.com/satyakwok/sentrix/actions)
 [![Rust](https://img.shields.io/badge/rust-1.94+-orange)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-335%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-342%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BUSL--1.1-purple)](LICENSE)
 [![Chain ID](https://img.shields.io/badge/chain%20ID-7119-blue)]()
 
@@ -57,7 +57,7 @@ cargo build --release
 
 ```bash
 cargo test
-# 335 tests across 11 suites — unit + integration
+# 342 tests across 11 suites — unit + integration
 ```
 
 ### Bootstrap a local node
@@ -292,7 +292,7 @@ Known limitations: PoA consensus requires trust in the validator set by design. 
 
 | Phase | Timeline | Focus |
 |-------|----------|-------|
-| **Phase 1** ✅ | Complete | PoA core, SRX-20 tokens, SentrixTrie, libp2p Noise, 335 tests, live network |
+| **Phase 1** ✅ | Complete | PoA core, SRX-20 tokens, SentrixTrie, libp2p Noise, 342 tests, live network |
 | **Phase 2** | 2026-05 → 2026-07 | DPoS validator elections, BFT finality, EVM (revm) |
 | **Phase 3** | 2026-08 → 2026-10 | Sharding (only if >1,000 TPS demand demonstrated) |
 | **Phase 4** | 2027+ | Custom parallel VM (only if EVM proves insufficient) |
