@@ -75,6 +75,9 @@ enum Commands {
         /// Validator private key hex (optional — node runs in relay mode if not set)
         #[arg(long)]
         validator_key: Option<String>,
+        /// Path to encrypted keystore file (alternative to --validator-key)
+        #[arg(long)]
+        validator_keystore: Option<String>,
         /// P2P port
         #[arg(long, default_value_t = DEFAULT_PORT)]
         port: u16,
@@ -120,6 +123,21 @@ enum WalletCommands {
     /// Show wallet info from keystore file
     Info {
         keystore_file: String,
+    },
+    /// Encrypt a private key to a keystore file
+    Encrypt {
+        private_key: String,
+        #[arg(long)]
+        password: Option<String>,
+        /// Output file (default: data/wallets/<addr>.json)
+        #[arg(long)]
+        output: Option<String>,
+    },
+    /// Decrypt a keystore file to show the private key (for backup only)
+    Decrypt {
+        keystore_file: String,
+        #[arg(long)]
+        password: Option<String>,
     },
 }
 
@@ -231,6 +249,10 @@ async fn main() -> anyhow::Result<()> {
             WalletCommands::Generate { password } => cmd_wallet_generate(password)?,
             WalletCommands::Import { private_key, password } => cmd_wallet_import(&private_key, password)?,
             WalletCommands::Info { keystore_file } => cmd_wallet_info(&keystore_file)?,
+            WalletCommands::Encrypt { private_key, password, output } =>
+                cmd_wallet_encrypt(&private_key, password, output)?,
+            WalletCommands::Decrypt { keystore_file, password } =>
+                cmd_wallet_decrypt(&keystore_file, password)?,
         },
 
         Commands::Validator { action } => match action {
@@ -253,9 +275,20 @@ async fn main() -> anyhow::Result<()> {
             ValidatorCommands::List => cmd_validator_list()?,
         },
 
-        Commands::Start { validator_key, port, peers } => {
-            // validator_key can also come from SENTRIX_VALIDATOR_KEY env var
-            let resolved_key = validator_key.or_else(|| std::env::var("SENTRIX_VALIDATOR_KEY").ok());
+        Commands::Start { validator_key, validator_keystore, port, peers } => {
+            // Resolve validator key: --validator-key > --validator-keystore > env var
+            let resolved_key = if let Some(key) = validator_key {
+                Some(key)
+            } else if let Some(ks_path) = validator_keystore {
+                // Decrypt keystore to get private key
+                let pwd = resolve_password(None)?;
+                let keystore = Keystore::load(&ks_path)?;
+                let wallet = keystore.decrypt(&pwd)?;
+                println!("Keystore decrypted: {}", wallet.address);
+                Some(wallet.secret_key_hex())
+            } else {
+                std::env::var("SENTRIX_VALIDATOR_KEY").ok()
+            };
             cmd_start(resolved_key, port, peers).await?;
         }
 
@@ -366,6 +399,54 @@ fn cmd_wallet_info(keystore_file: &str) -> anyhow::Result<()> {
     println!("  Cipher:  {}", keystore.crypto.cipher);
     println!("  KDF:     {} ({} iterations)", keystore.crypto.kdf, keystore.crypto.kdf_iterations);
     Ok(())
+}
+
+fn cmd_wallet_encrypt(private_key: &str, password: Option<String>, output: Option<String>) -> anyhow::Result<()> {
+    let pwd = resolve_password(password)?;
+    let wallet = Wallet::from_private_key(private_key)?;
+    let keystore = Keystore::encrypt(&wallet, &pwd)?;
+    let filename = output.unwrap_or_else(|| {
+        let dir = get_wallets_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        format!("{}/{}.json", dir, &wallet.address[2..10])
+    });
+    keystore.save(&filename)?;
+    println!("Wallet encrypted:");
+    println!("  Address:  {}", wallet.address);
+    println!("  Saved to: {}", filename);
+    println!("  KDF:      argon2id");
+    Ok(())
+}
+
+fn cmd_wallet_decrypt(keystore_file: &str, password: Option<String>) -> anyhow::Result<()> {
+    let pwd = resolve_password(password)?;
+    let keystore = Keystore::load(keystore_file)?;
+    let wallet = keystore.decrypt(&pwd)?;
+    println!("Wallet decrypted:");
+    println!("  Address:     {}", wallet.address);
+    println!("  Public key:  {}", wallet.public_key);
+    // Private key printed to stdout ONLY — never logged, never in API
+    println!("  Private key: {}", wallet.secret_key_hex());
+    Ok(())
+}
+
+/// Resolve password from CLI arg, SENTRIX_WALLET_PASSWORD env var, or terminal prompt.
+fn resolve_password(cli_password: Option<String>) -> anyhow::Result<String> {
+    if let Some(pw) = cli_password {
+        return Ok(pw);
+    }
+    if let Ok(pw) = std::env::var("SENTRIX_WALLET_PASSWORD") {
+        return Ok(pw);
+    }
+    // Prompt on terminal
+    eprint!("Enter wallet password: ");
+    let mut pw = String::new();
+    std::io::stdin().read_line(&mut pw)?;
+    let pw = pw.trim().to_string();
+    if pw.is_empty() {
+        anyhow::bail!("Password cannot be empty");
+    }
+    Ok(pw)
 }
 
 fn cmd_validator_add(address: &str, name: &str, public_key: &str, admin_key: &str) -> anyhow::Result<()> {
