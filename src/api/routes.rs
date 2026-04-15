@@ -289,7 +289,7 @@ fn explorer_router(_state: SharedState) -> Router<SharedState> {
 async fn root() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "name": "Sentrix",
-        "chain_id": 7119,
+        "chain_id": crate::core::blockchain::get_chain_id(),
         "version": env!("CARGO_PKG_VERSION"),
         "docs": {
             "chain_info": "/chain/info",
