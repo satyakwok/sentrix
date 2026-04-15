@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::expect_used, clippy::unwrap_used)]
 // tests/integration_trie.rs - Sentrix — SentrixTrie integration tests
 
 use secp256k1::{Secp256k1, rand::rngs::OsRng};

@@ -1,10 +1,11 @@
+#![allow(missing_docs, clippy::expect_used, clippy::unwrap_used)]
 // integration_voyager.rs — Integration tests for Voyager DPoS + BFT
 //
 // Tests the full flow: stake → epoch transition → BFT round → finalize → rewards
 
 use sentrix::core::staking::{StakeRegistry, MIN_SELF_STAKE};
 use sentrix::core::epoch::{EpochManager, EPOCH_LENGTH};
-use sentrix::core::slashing::{SlashingEngine, DOWNTIME_SLASH_BP, LIVENESS_WINDOW};
+use sentrix::core::slashing::{SlashingEngine, LIVENESS_WINDOW};
 use sentrix::core::bft::{BftEngine, BftPhase, BftAction};
 use sentrix::core::bft_messages::{Prevote, Precommit, supermajority_threshold};
 

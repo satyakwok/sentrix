@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::expect_used, clippy::unwrap_used)]
 // integration_tx.rs — Transaction lifecycle end-to-end tests
 // Covers: mempool acceptance, block inclusion, balance changes, double-spend protection,
 // insufficient balance, fee distribution, and nonce sequencing.

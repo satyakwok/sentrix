@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::expect_used, clippy::unwrap_used)]
 // integration_sync.rs — Two-node block synchronisation tests
 // Verifies that Node B can reconstruct identical chain state by applying
 // blocks received from Node A one by one.

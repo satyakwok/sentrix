@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::expect_used, clippy::unwrap_used)]
 // integration_sliding_window.rs — Sliding window (CHAIN_WINDOW_SIZE) tests
 //
 // Sentrix keeps only the last CHAIN_WINDOW_SIZE (1_000) blocks in RAM.

@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::expect_used, clippy::unwrap_used)]
 // integration_restart.rs — Node restart persistence tests
 // Verifies that all chain state survives a full shutdown → storage save → reload cycle.
 

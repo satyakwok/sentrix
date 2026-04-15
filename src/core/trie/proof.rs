@@ -80,7 +80,7 @@ mod tests {
         // Single-level proof: root = hash_internal(sibling, leaf_hash)
         let sibling = [99u8; 32];
         // key bit 0 = MSB of key[0] = (42 >> 7) & 1 = 0 → goes left → sibling is right
-        let bit0 = (42u8 >> 7) & 1 == 1; // false
+        let bit0 = 42u8 >= 128; // false — MSB of 42 is 0
         let root = if bit0 {
             hash_internal(&sibling, &leaf_hash)
         } else {
