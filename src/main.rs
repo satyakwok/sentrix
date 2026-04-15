@@ -3,6 +3,7 @@
 
 use clap::{Parser, Subcommand};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
 use sentrix::core::blockchain::Blockchain;
 use sentrix::core::transaction::{Transaction, TokenOp, TOKEN_OP_ADDRESS};
@@ -503,6 +504,10 @@ async fn cmd_start(
         }
     }
 
+    // Shutdown flag — set to true by the signal handler to stop the validator loop
+    // cleanly before the process exits (guarantees trie.commit() is not interrupted).
+    let shutdown_flag = Arc::new(AtomicBool::new(false));
+
     // Validator loop
     if let Some(key_hex) = validator_key {
         let wallet = Wallet::from_private_key(&key_hex)?;
@@ -510,8 +515,15 @@ async fn cmd_start(
         let shared_clone = shared.clone();
         let storage_clone = storage.clone();
         let lp2p_clone = lp2p.clone();
+        let shutdown_flag_clone = shutdown_flag.clone();
         tokio::spawn(async move {
             loop {
+                // Stop before acquiring the write lock so the shutdown handler
+                // can obtain it immediately without racing a new block cycle.
+                if shutdown_flag_clone.load(Ordering::Acquire) {
+                    tracing::info!("Validator loop: shutdown flag set — exiting");
+                    break;
+                }
                 tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
                 // Release write lock before disk I/O so API reads are not
@@ -633,6 +645,19 @@ async fn cmd_start(
             let _ = tokio::signal::ctrl_c().await;
             tracing::info!("Ctrl+C received — shutting down");
         }
+
+        // 1. Signal the validator loop to stop — prevents a new block cycle from
+        //    starting while we are trying to save state.
+        shutdown_flag.store(true, Ordering::Release);
+
+        // 2. Acquire the write lock and immediately drop it.
+        //    This waits for any in-progress add_block() (and therefore trie.commit())
+        //    to finish before we take a snapshot — guarantees the trie root is committed.
+        tracing::info!("Graceful shutdown: waiting for in-progress block to complete...");
+        drop(shutdown_shared.write().await);
+
+        // 3. Save state under a read lock so API requests can still be served
+        //    until axum finishes its own graceful drain.
         tracing::info!("Graceful shutdown: saving state to disk...");
         let bc = shutdown_shared.read().await;
         if let Err(e) = shutdown_storage.save_blockchain(&bc) {
