@@ -865,7 +865,9 @@ async fn cmd_start(
                                             break;
                                         }
                                         BftAction::SkipRound => {
-                                            tracing::warn!("BFT skip round at height {}", bft.height());
+                                            // Nil supermajority → advance round (DON'T reset engine)
+                                            bft.advance_round();
+                                            tracing::warn!("BFT skip round — advanced to round {} at height {}", bft.round(), bft.height());
                                             break;
                                         }
                                         BftAction::SyncNeeded { .. } => {
@@ -1091,7 +1093,9 @@ async fn cmd_start(
                                     break;
                                 }
                                 BftAction::SkipRound => {
-                                    tracing::warn!("BFT skip round at height {}", bft.height());
+                                    // Nil supermajority → advance round (DON'T reset engine)
+                                    bft.advance_round();
+                                    tracing::warn!("BFT skip round — advanced to round {} at height {}", bft.round(), bft.height());
                                     break;
                                 }
                                 BftAction::SyncNeeded { peer_height } => {
@@ -1137,9 +1141,10 @@ async fn cmd_start(
                                     break;
                                 }
                                 BftAction::SkipRound => {
-                                    tracing::warn!("BFT skip round at height {}", bft.height());
-                                    // Reset engine so next iteration starts fresh height
-                                    bft_engine = None;
+                                    // Nil supermajority → advance round (DON'T reset engine)
+                                    // Resetting would cause desync vs other validators who are advancing
+                                    bft.advance_round();
+                                    tracing::warn!("BFT skip round — advanced to round {} at height {}", bft.round(), bft.height());
                                     break;
                                 }
                                 _ => break,
