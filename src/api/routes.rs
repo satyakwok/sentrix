@@ -296,6 +296,7 @@ pub fn create_router(state: SharedState) -> Router {
         // ── Public GET routes ────────────────────────────────────
         .route("/", get(root))
         .route("/health", get(health))
+        .route("/metrics", get(metrics))
         .route("/chain/info", get(chain_info))
         .route("/chain/blocks", get(get_blocks))
         .route("/chain/blocks/{index}", get(get_block))
@@ -389,6 +390,93 @@ async fn root() -> Json<serde_json::Value> {
 
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok", "node": "sentrix-chain" }))
+}
+
+/// Prometheus-format metrics endpoint. Returns plain text `text/plain;
+/// version=0.0.4` so Prometheus, Grafana Agent, and Datadog can scrape
+/// directly.
+///
+/// No authentication — these are public chain metrics that any dashboard
+/// or monitoring system can consume.
+static START_TIME: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+async fn metrics(State(state): State<SharedState>) -> axum::response::Response {
+    let uptime = START_TIME
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_secs();
+    let bc = state.read().await;
+    let height = bc.height();
+    let validators = bc.authority.active_count();
+    let mempool = bc.mempool_size();
+    let chain_id = bc.chain_id;
+    let deployed_tokens = bc.list_tokens().len();
+
+    // Compute avg block time from last 10 blocks in the window.
+    let mut block_times: Vec<u64> = Vec::new();
+    let chain = &bc.chain;
+    if chain.len() >= 2 {
+        let tail = if chain.len() > 11 {
+            &chain[chain.len() - 11..]
+        } else {
+            chain.as_slice()
+        };
+        for w in tail.windows(2) {
+            let dt = w[1].timestamp.saturating_sub(w[0].timestamp);
+            if dt > 0 && dt < 60 {
+                block_times.push(dt);
+            }
+        }
+    }
+    let avg_block_time = if block_times.is_empty() {
+        3.0
+    } else {
+        block_times.iter().sum::<u64>() as f64 / block_times.len() as f64
+    };
+
+    // Avg tx per block (last 10).
+    let tx_per_block: f64 = if chain.len() >= 2 {
+        let tail = if chain.len() > 10 {
+            &chain[chain.len() - 10..]
+        } else {
+            chain.as_slice()
+        };
+        tail.iter().map(|b| b.tx_count() as f64).sum::<f64>() / tail.len() as f64
+    } else {
+        0.0
+    };
+
+    let body = format!(
+        "# HELP sentrix_block_height Current chain height.\n\
+         # TYPE sentrix_block_height gauge\n\
+         sentrix_block_height{{chain_id=\"{chain_id}\"}} {height}\n\
+         # HELP sentrix_active_validators Number of active PoA/DPoS validators.\n\
+         # TYPE sentrix_active_validators gauge\n\
+         sentrix_active_validators {validators}\n\
+         # HELP sentrix_tx_pool_size Number of pending transactions in mempool.\n\
+         # TYPE sentrix_tx_pool_size gauge\n\
+         sentrix_tx_pool_size {mempool}\n\
+         # HELP sentrix_tx_per_block Average transactions per block (last 10 blocks).\n\
+         # TYPE sentrix_tx_per_block gauge\n\
+         sentrix_tx_per_block {tx_per_block:.2}\n\
+         # HELP sentrix_block_time_seconds Average block time in seconds (last 10 blocks).\n\
+         # TYPE sentrix_block_time_seconds gauge\n\
+         sentrix_block_time_seconds {avg_block_time:.2}\n\
+         # HELP sentrix_deployed_tokens Number of deployed SRX-20/SRC-20 token contracts.\n\
+         # TYPE sentrix_deployed_tokens gauge\n\
+         sentrix_deployed_tokens {deployed_tokens}\n\
+         # HELP sentrix_uptime_seconds Seconds since node process started.\n\
+         # TYPE sentrix_uptime_seconds counter\n\
+         sentrix_uptime_seconds {uptime}\n\
+         # HELP sentrix_chain_id Chain identifier.\n\
+         # TYPE sentrix_chain_id gauge\n\
+         sentrix_chain_id {chain_id}\n"
+    );
+
+    axum::response::Response::builder()
+        .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+        .body(axum::body::Body::from(body))
+        .unwrap_or_default()
 }
 
 async fn chain_info(State(state): State<SharedState>) -> Json<serde_json::Value> {

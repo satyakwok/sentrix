@@ -1,0 +1,27 @@
+{
+  "name": "Sentrix Dev",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {}
+  },
+  "postCreateCommand": "cargo fetch && pip install requests ecdsa pycryptodome eth-account",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "serayuzgur.crates",
+        "vadimcn.vscode-lldb"
+      ],
+      "settings": {
+        "rust-analyzer.check.command": "clippy",
+        "rust-analyzer.check.extraArgs": ["--", "-D", "warnings"]
+      }
+    }
+  },
+  "forwardPorts": [8545, 9545, 30303],
+  "remoteEnv": {
+    "SENTRIX_ALLOW_UNENCRYPTED_DISK": "true",
+    "RUST_LOG": "info"
+  }
+}
