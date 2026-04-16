@@ -111,12 +111,24 @@ pub fn constant_time_eq(a: &str, b: &str) -> bool {
 // ── Per-IP Rate Limiter (V5-06) ──────────────────────────
 pub type IpRateLimiter = Arc<Mutex<HashMap<String, (u32, Instant)>>>;
 const RATE_LIMIT_WINDOW_SECS: u64 = 60;
-const RATE_LIMIT_MAX_REQUESTS: u32 = 60;
+/// Override via SENTRIX_GLOBAL_RATE_LIMIT env var for benchmarking.
+fn global_rate_limit_max() -> u32 {
+    std::env::var("SENTRIX_GLOBAL_RATE_LIMIT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60)
+}
 /// A7: tighter per-IP cap applied only to write/expensive endpoints
 /// (POST /transactions, /tokens/deploy|transfer|burn, /rpc). Defends
 /// against single-IP spam of state-mutating requests in addition to the
 /// global 60 req/min ceiling. Read endpoints stay at the global limit.
-const WRITE_RATE_LIMIT_MAX_REQUESTS: u32 = 10;
+/// Override via SENTRIX_WRITE_RATE_LIMIT env var for benchmarking (e.g. 10000).
+fn write_rate_limit_max() -> u32 {
+    std::env::var("SENTRIX_WRITE_RATE_LIMIT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10)
+}
 
 /// A7: distinct limiter newtypes so write+read counters do not alias each
 /// other. Both registered as separate `Extension<T>` entries on requests.
@@ -178,7 +190,7 @@ async fn ip_rate_limit_middleware(
         check_rate_limit(
             limiter.0,
             ip,
-            RATE_LIMIT_MAX_REQUESTS,
+            global_rate_limit_max(),
             RATE_LIMIT_WINDOW_SECS,
         )
         .await
@@ -188,7 +200,7 @@ async fn ip_rate_limit_middleware(
     if allowed {
         next.run(request).await
     } else {
-        rate_limit_response(RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_SECS)
+        rate_limit_response(global_rate_limit_max(), RATE_LIMIT_WINDOW_SECS)
     }
 }
 
@@ -205,7 +217,7 @@ async fn write_rate_limit_middleware(
         check_rate_limit(
             limiter.0,
             ip,
-            WRITE_RATE_LIMIT_MAX_REQUESTS,
+            write_rate_limit_max(),
             RATE_LIMIT_WINDOW_SECS,
         )
         .await
@@ -215,7 +227,7 @@ async fn write_rate_limit_middleware(
     if allowed {
         next.run(request).await
     } else {
-        rate_limit_response(WRITE_RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_SECS)
+        rate_limit_response(write_rate_limit_max(), RATE_LIMIT_WINDOW_SECS)
     }
 }
 

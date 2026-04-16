@@ -69,11 +69,21 @@ class SimpleECDSA:
         k.update(self.pk.to_string())
         return "0x" + k.hexdigest()[-40:]
 
+    # secp256k1 order — needed for low-S normalization
+    SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+    HALF_N = SECP256K1_N // 2
+
     def sign(self, payload_bytes: bytes) -> str:
+        """Sign with low-S normalization (BIP-62). Sentrix verify_ecdsa rejects high-S."""
         from ecdsa.util import sigencode_string
         h = sha256(payload_bytes)
         sig = self.sk.sign_digest(h, sigencode=sigencode_string)
-        return sig.hex()
+        # Normalize to low-S: if s > N/2, flip to N-s
+        r = int.from_bytes(sig[:32], "big")
+        s = int.from_bytes(sig[32:], "big")
+        if s > self.HALF_N:
+            s = self.SECP256K1_N - s
+        return r.to_bytes(32, "big").hex() + s.to_bytes(32, "big").hex()
 
 
 def build_signing_payload(from_addr, to_addr, amount, fee, nonce, data, timestamp, chain_id):
