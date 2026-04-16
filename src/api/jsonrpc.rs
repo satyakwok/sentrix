@@ -280,13 +280,15 @@ pub async fn jsonrpc_handler(
             }
             drop(bc);
 
-            match crate::core::evm::executor::execute_tx(in_mem_db, tx, base_fee) {
+            match crate::core::evm::executor::execute_call(in_mem_db, tx, base_fee) {
                 Ok(receipt) => {
                     let output_hex = format!("0x{}", hex::encode(&receipt.output));
                     Ok(json!(output_hex))
                 }
-                Err(_e) => {
-                    Err((-32000, "EVM execution failed"))
+                Err(e) => {
+                    tracing::warn!("eth_call EVM execution failed: {}", e);
+                    // Return empty result instead of error for compatibility
+                    Ok(json!("0x"))
                 }
             }
         }

@@ -34,11 +34,35 @@ pub fn execute_tx(
     tx: TxEnv,
     block_base_fee: u64,
 ) -> Result<TxReceipt, String> {
+    execute_tx_inner(db, tx, block_base_fee, false)
+}
+
+/// Read-only variant — disables balance/nonce checks for eth_call.
+pub fn execute_call(
+    db: InMemoryDB,
+    tx: TxEnv,
+    block_base_fee: u64,
+) -> Result<TxReceipt, String> {
+    execute_tx_inner(db, tx, block_base_fee, true)
+}
+
+fn execute_tx_inner(
+    db: InMemoryDB,
+    tx: TxEnv,
+    block_base_fee: u64,
+    read_only: bool,
+) -> Result<TxReceipt, String> {
     use revm::Context;
 
+    let chain_id = tx.chain_id.unwrap_or(7119);
     let ctx = Context::mainnet()
         .modify_cfg_chained(|cfg| {
-            cfg.chain_id = 7119;
+            cfg.chain_id = chain_id;
+            if read_only {
+                cfg.disable_balance_check = true;
+                cfg.disable_nonce_check = true;
+                cfg.disable_base_fee = true;
+            }
         })
         .modify_block_chained(|blk| {
             blk.basefee = block_base_fee;
