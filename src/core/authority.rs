@@ -844,63 +844,78 @@ mod tests {
     }
 
     // ── transfer_admin tests ────────────────────────────────
+    //
+    // All addresses below are generated per-test from random keypairs
+    // (gen_validator_keypair). Never hardcode real production addresses
+    // in tests — they couple test data to live chain state and leak
+    // operational info into the public repo.
 
-    const NEW_ADMIN_ADDR: &str = "0xREDACTED_V2_ADDR_2026_04_17";
+    /// Build a manager whose admin_address is a freshly generated valid
+    /// Sentrix address (instead of the literal "admin" string used by
+    /// setup()/setup_4()). transfer_admin requires the current admin
+    /// to be a valid Sentrix-format address so it can be replaced by
+    /// another valid Sentrix-format address.
+    fn setup_with_real_admin() -> (AuthorityManager, String) {
+        let mut mgr = setup();
+        let (admin_addr, _) = gen_validator_keypair();
+        mgr.admin_address = admin_addr.clone();
+        (mgr, admin_addr)
+    }
+
+    fn setup_4_with_real_admin() -> (AuthorityManager, String) {
+        let mut mgr = setup_4();
+        let (admin_addr, _) = gen_validator_keypair();
+        mgr.admin_address = admin_addr.clone();
+        (mgr, admin_addr)
+    }
 
     #[test]
     fn test_transfer_admin_happy_path() {
-        let mut mgr = setup();
-        // setup() uses "admin" as admin, but transfer_admin requires a
-        // valid Sentrix address format for the NEW admin. Seed a valid
-        // current admin first by direct mutation (test-only).
-        mgr.admin_address = "0x4f3319a747fd564136209cd5d9e7d1a1e4d142be".to_string();
-        let old_admin = mgr.admin_address.clone();
+        let (mut mgr, old_admin) = setup_with_real_admin();
+        let (new_admin, _) = gen_validator_keypair();
         let log_len_before = mgr.admin_log.len();
 
-        mgr.transfer_admin(&old_admin, NEW_ADMIN_ADDR.to_string())
+        mgr.transfer_admin(&old_admin, new_admin.clone())
             .expect("admin can transfer to a fresh valid address");
 
-        assert_eq!(mgr.admin_address, NEW_ADMIN_ADDR);
+        assert_eq!(mgr.admin_address, new_admin);
         assert_eq!(mgr.admin_log.len(), log_len_before + 1);
         let last = mgr.admin_log.last().unwrap();
         assert_eq!(last.operation, "transfer_admin");
         assert_eq!(last.caller, old_admin);
-        assert_eq!(last.target_address, NEW_ADMIN_ADDR);
+        assert_eq!(last.target_address, new_admin);
     }
 
     #[test]
     fn test_transfer_admin_unauthorized_caller_rejected() {
-        let mut mgr = setup();
-        mgr.admin_address = "0x4f3319a747fd564136209cd5d9e7d1a1e4d142be".to_string();
-        let result = mgr.transfer_admin("not-the-admin", NEW_ADMIN_ADDR.to_string());
+        let (mut mgr, old_admin) = setup_with_real_admin();
+        let (new_admin, _) = gen_validator_keypair();
+        let result = mgr.transfer_admin("not-the-admin", new_admin);
         assert!(result.is_err());
         // Admin field must be unchanged.
-        assert_eq!(mgr.admin_address, "0x4f3319a747fd564136209cd5d9e7d1a1e4d142be");
+        assert_eq!(mgr.admin_address, old_admin);
     }
 
     #[test]
     fn test_transfer_admin_invalid_address_rejected() {
-        let mut mgr = setup();
-        mgr.admin_address = "0x4f3319a747fd564136209cd5d9e7d1a1e4d142be".to_string();
-        let admin = mgr.admin_address.clone();
+        let (mut mgr, old_admin) = setup_with_real_admin();
         // Missing 0x prefix, wrong length, non-hex chars all rejected.
         for bad in [
             "abcdef",
             "0xabc",
-            "0x4f3319a747fd564136209cd5d9e7d1a1e4d142bezz", // non-hex
+            // 0x + 40 chars but contains non-hex letters at the end:
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaazz",
             "",
         ] {
-            let result = mgr.transfer_admin(&admin, bad.to_string());
+            let result = mgr.transfer_admin(&old_admin, bad.to_string());
             assert!(result.is_err(), "should reject bad address {:?}", bad);
         }
-        assert_eq!(mgr.admin_address, "0x4f3319a747fd564136209cd5d9e7d1a1e4d142be");
+        assert_eq!(mgr.admin_address, old_admin);
     }
 
     #[test]
     fn test_transfer_admin_self_transfer_rejected() {
-        let mut mgr = setup();
-        mgr.admin_address = "0x4f3319a747fd564136209cd5d9e7d1a1e4d142be".to_string();
-        let admin = mgr.admin_address.clone();
+        let (mut mgr, admin) = setup_with_real_admin();
         let result = mgr.transfer_admin(&admin, admin.clone());
         assert!(result.is_err());
         // Audit log must not contain a transfer_admin entry for a no-op.
@@ -911,11 +926,9 @@ mod tests {
     fn test_transfer_admin_old_admin_loses_powers() {
         // After transfer, the old admin's signature must NOT be accepted
         // for subsequent admin operations.
-        let mut mgr = setup_4();
-        mgr.admin_address = "0x4f3319a747fd564136209cd5d9e7d1a1e4d142be".to_string();
-        let old_admin = mgr.admin_address.clone();
-        mgr.transfer_admin(&old_admin, NEW_ADMIN_ADDR.to_string())
-            .unwrap();
+        let (mut mgr, old_admin) = setup_4_with_real_admin();
+        let (new_admin, _) = gen_validator_keypair();
+        mgr.transfer_admin(&old_admin, new_admin.clone()).unwrap();
 
         // Old admin tries to remove a validator — must fail.
         let any_addr = mgr.active_validators()[0].address.clone();
@@ -923,17 +936,17 @@ mod tests {
         assert!(result.is_err(), "old admin must lose powers after transfer");
 
         // New admin succeeds for the same op.
-        let ok = mgr.remove_validator(NEW_ADMIN_ADDR, &any_addr);
+        let ok = mgr.remove_validator(&new_admin, &any_addr);
         assert!(ok.is_ok(), "new admin should be able to perform admin ops");
     }
 
     #[test]
     fn test_transfer_admin_to_burn_address_disables_admin_forever() {
-        // Special pattern — transferring to 0x000…0 (no key derives this
-        // address) effectively retires the admin role permanently.
-        let mut mgr = setup();
-        mgr.admin_address = "0x4f3319a747fd564136209cd5d9e7d1a1e4d142be".to_string();
-        let admin = mgr.admin_address.clone();
+        // Special pattern — transferring to the all-zeros address (no
+        // key derives this address) effectively retires the admin role
+        // permanently. Burn address is a public well-known constant,
+        // safe to hardcode.
+        let (mut mgr, admin) = setup_with_real_admin();
         let burn = "0x0000000000000000000000000000000000000000";
         mgr.transfer_admin(&admin, burn.to_string()).unwrap();
         assert_eq!(mgr.admin_address, burn);
