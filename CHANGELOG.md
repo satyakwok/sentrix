@@ -46,7 +46,18 @@ Voyager EVM (Phase 2b). Full Ethereum compatibility.
 - **Per-IP rate limiter** bumped to 20 connections (handles VPS2 hosting 5 validators on one IP)
 - **SRC-20 token standard** verified with deployed test contract
 - **TPS benchmark scripts** (Python) for testnet load testing
-- 525+ tests, clippy clean, cargo fmt applied repo-wide
+- 519 tests, clippy clean, cargo fmt applied repo-wide
+- **A1** — genesis premine credit error handling: fatal exit on failure (was silent)
+- **A2** — EVM tx receipt `status=0x0` on revert; bounded `failed_evm_txs` set on AccountDB
+- **A3** — mempool insertion uses `partition_point` for O(log n) compare cost
+- **A4** — BFT `on_prevote` delegates to `on_prevote_weighted(prevote, 1)` (test/legacy only)
+- **A5** — `txid_index` sled tree + idempotent backfill; `get_transaction()` works for blocks beyond `CHAIN_WINDOW_SIZE`
+- **A6/A7** — per-endpoint write rate limit (10 req/min per IP) on `/transactions`, `/tokens/deploy|transfer|burn`, `/rpc`
+- **A8** — `chrono` crate replaces hand-rolled Gregorian/leap-year math
+- **A9** — explorer timestamps switch from WIB (UTC+7) to UTC across all pages and daily-stats buckets
+- **A10** — `Storage::open` enforces `SENTRIX_ENCRYPTED_DISK=true` at startup; `SENTRIX_ALLOW_UNENCRYPTED_DISK=true` escape hatch for dev/CI
+- **B1** — explorer transaction page surfaces Type badge (COINBASE/EVM CREATE/EVM CALL/TOKEN OP/NATIVE) + REVERTED status + gas/calldata rows
+- **C1** — `SENTRIX_API_HOST` + `SENTRIX_P2P_HOST` env vars to bind listeners to a specific interface (default `0.0.0.0`); testnet validators behind nginx now bind `127.0.0.1`
 
 ### Changed
 - **SHA-256 weighted proposer** — replaces old `(height*31+round)*7` selector that always picked first validator with equal stakes
@@ -62,6 +73,12 @@ Voyager EVM (Phase 2b). Full Ethereum compatibility.
 - **Mempool zero-address guard** allows EVM CREATE txs (to=0x0)
 - **Block_executor** routes EVM txs through revm + stores runtime bytecode (not init bytecode) on CREATE
 - **Chain.db corruption** workaround documented (`sentrix chain reset-trie` rebuilds from canonical AccountDB)
+
+### Security
+- **Removed exposed deployer private key** from `benchmark/*.py` (was leaking the Early Validator key on the public repo since v1.2.0-rc commits). Key drained on mainnet to a freshly generated address; git history scrubbed via `git filter-repo` and force-pushed.
+- **Removed hardcoded validator IPs** from benchmark scripts and committed history; replaced with `SENTRIX_RPC` env var defaulting to `127.0.0.1`.
+- **Removed `__pycache__/*.pyc`** that shipped pre-compiled bytecode containing the validator IP.
+- Added `*.pyc`, `*.pyo`, `__pycache__/` to `.gitignore`.
 
 ---
 

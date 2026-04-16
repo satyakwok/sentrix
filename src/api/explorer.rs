@@ -838,13 +838,12 @@ pub async fn explorer_tx(
 
             // B1: status reflects EVM revert state. failed_evm_txs is populated
             // by execute_evm_tx_in_block when revm reports !receipt.success.
-            let (status_badge_class, status_label) = if is_evm
-                && bc.accounts.is_evm_tx_failed(txid_str)
-            {
-                ("badge", "REVERTED")
-            } else {
-                ("badge-green", "CONFIRMED")
-            };
+            let (status_badge_class, status_label) =
+                if is_evm && bc.accounts.is_evm_tx_failed(txid_str) {
+                    ("badge", "REVERTED")
+                } else {
+                    ("badge-green", "CONFIRMED")
+                };
             let status_style = if status_label == "REVERTED" {
                 r#"style="background:#4a1c1c;color:#f87171""#
             } else {
@@ -1396,6 +1395,9 @@ mod tests {
         let epoch = fmt_ts(0);
         assert!(epoch.contains("UTC"), "epoch should contain UTC: {epoch}");
         assert!(epoch.contains("1970"), "epoch should contain 1970: {epoch}");
-        assert!(epoch.contains("00:00"), "epoch should be 00:00 UTC: {epoch}");
+        assert!(
+            epoch.contains("00:00"),
+            "epoch should be 00:00 UTC: {epoch}"
+        );
     }
 }

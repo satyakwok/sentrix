@@ -676,8 +676,7 @@ async fn cmd_start(
     );
 
     let p2p_host = get_p2p_host();
-    let listen_addr =
-        make_multiaddr(&p2p_host, port).map_err(|e| anyhow::anyhow!("{}", e))?;
+    let listen_addr = make_multiaddr(&p2p_host, port).map_err(|e| anyhow::anyhow!("{}", e))?;
     lp2p.listen_on(listen_addr)
         .await
         .map_err(|e| anyhow::anyhow!("{}", e))?;

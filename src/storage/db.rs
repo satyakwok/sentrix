@@ -21,8 +21,7 @@ impl Storage {
         // be set on the validator VPS — it is intended for laptops, CI
         // runners, and ephemeral integration tests only.
         let encrypted = std::env::var("SENTRIX_ENCRYPTED_DISK").as_deref() == Ok("true");
-        let dev_override =
-            std::env::var("SENTRIX_ALLOW_UNENCRYPTED_DISK").as_deref() == Ok("true");
+        let dev_override = std::env::var("SENTRIX_ALLOW_UNENCRYPTED_DISK").as_deref() == Ok("true");
         if !encrypted {
             if dev_override {
                 tracing::warn!(
@@ -193,10 +192,9 @@ impl Storage {
             } else {
                 match bc.backfill_txid_index(&self.db) {
                     Ok(0) => {} // already populated
-                    Ok(n) => tracing::info!(
-                        "txid_index: backfilled {} tx entries from sled blocks",
-                        n
-                    ),
+                    Ok(n) => {
+                        tracing::info!("txid_index: backfilled {} tx entries from sled blocks", n)
+                    }
                     Err(e) => tracing::warn!("txid_index backfill failed: {}", e),
                 }
             }
@@ -223,10 +221,9 @@ impl Storage {
             } else {
                 match bc.backfill_txid_index(&self.db) {
                     Ok(0) => {}
-                    Ok(n) => tracing::info!(
-                        "txid_index: backfilled {} tx entries from sled blocks",
-                        n
-                    ),
+                    Ok(n) => {
+                        tracing::info!("txid_index: backfilled {} tx entries from sled blocks", n)
+                    }
                     Err(e) => tracing::warn!("txid_index backfill failed: {}", e),
                 }
             }

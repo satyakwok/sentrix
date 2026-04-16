@@ -110,7 +110,9 @@ impl Blockchain {
         // would force a sort on every read — worse trade for read-heavy
         // access patterns.
         // TODO: RBF (Replace-By-Fee) not yet implemented.
-        let pos = self.mempool.partition_point(|existing| existing.fee >= tx.fee);
+        let pos = self
+            .mempool
+            .partition_point(|existing| existing.fee >= tx.fee);
         self.mempool.insert(pos, tx);
         Ok(())
     }

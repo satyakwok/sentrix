@@ -3,7 +3,8 @@
 Fast, secure Layer-1 blockchain built in Rust.
 
 [![CI/CD](https://github.com/satyakwok/sentrix/actions/workflows/ci.yml/badge.svg)](https://github.com/satyakwok/sentrix/actions)
-[![Tests](https://img.shields.io/badge/tests-525%20passing-brightgreen)](https://github.com/satyakwok/sentrix/actions)
+[![Release](https://img.shields.io/github/v/release/satyakwok/sentrix)](https://github.com/satyakwok/sentrix/releases/latest)
+[![Tests](https://img.shields.io/badge/tests-519%20passing-brightgreen)](https://github.com/satyakwok/sentrix/actions)
 [![Rust](https://img.shields.io/badge/rust-stable-orange)](Cargo.toml)
 [![Chain ID](https://img.shields.io/badge/chain%20ID-7119-blue)](docs/operations/NETWORKS.md)
 [![License](https://img.shields.io/badge/license-BUSL--1.1-purple)](LICENSE)
@@ -14,9 +15,9 @@ Fast, secure Layer-1 blockchain built in Rust.
 
 Sentrix (SRX) is a purpose-built Layer-1 blockchain with 3-second block times, instant finality, and Ethereum-compatible tooling. MetaMask, ethers.js, and web3.js connect natively.
 
-- **v1.2.0** — Voyager EVM live on testnet (revm + eth_sendRawTransaction), DPoS+BFT consensus, PoA on mainnet
-- **525+ tests**, clippy clean, 11 security audit rounds
-- **7 validators** across 3 VPS, zero-downtime rolling CI/CD
+- **v1.2.0** — Voyager EVM live on testnet (revm + `eth_sendRawTransaction`), DPoS+BFT consensus, PoA on mainnet
+- **519 tests**, clippy clean, 11 security audit rounds
+- **7 validators** across 3 nodes, zero-downtime rolling CI/CD
 
 ## Features
 
@@ -42,7 +43,7 @@ cd sentrix
 cargo build --release
 
 # Test
-cargo test    # 525+ tests
+cargo test    # 519 tests
 
 # Run a node
 SENTRIX_VALIDATOR_KEY=<key> ./target/release/sentrix start --port 30303
@@ -50,6 +51,18 @@ SENTRIX_VALIDATOR_KEY=<key> ./target/release/sentrix start --port 30303
 # Check health
 curl http://localhost:8545/health
 ```
+
+## Connect MetaMask (Testnet)
+
+| Field | Value |
+|---|---|
+| Network name | Sentrix Testnet |
+| RPC URL | `https://testnet-rpc.sentriscloud.com/rpc` |
+| Chain ID | `7120` |
+| Symbol | `SRX` |
+| Explorer | `https://testnet-explorer.sentriscloud.com` |
+
+Full guide: [docs/operations/METAMASK.md](docs/operations/METAMASK.md). Deploy a smart contract via Remix: [docs/operations/SMART_CONTRACT_GUIDE.md](docs/operations/SMART_CONTRACT_GUIDE.md). EVM internals: [docs/architecture/EVM.md](docs/architecture/EVM.md).
 
 ## Architecture
 
