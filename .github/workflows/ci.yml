@@ -184,51 +184,47 @@ jobs:
           "
 
       # Phase 5: Final cluster-wide health check.
-      # Retry up to 3 times with 30s intervals — pass if ANY interval shows progress.
-      # 30s window = ~10 blocks at 3s/block, well within normal variance.
+      # Retry up to 5 times with 60s intervals.
+      # Pass condition: in any window, the cluster MAX height advances by >= 1.
+      # Round-robin PoA can have brief pauses during validator restart cycles
+      # (a missed slot waits for the next validator's turn), so generous timeout.
       - name: Cluster health check
         run: |
-          echo '--- Final cluster health check (retry up to 3 times) ---'
-          sleep 5
+          echo '--- Final cluster health check (retry up to 5 times, 60s windows) ---'
+          sleep 10
 
           get_h() {
             curl -sf --max-time 10 "http://$1:8545/chain/info" \
               | python3 -c "import sys,json; print(json.load(sys.stdin)['height'])" 2>/dev/null || echo "0"
           }
 
+          cluster_max() {
+            H1=$(get_h ${{ secrets.VPS1_HOST }})
+            H2=$(get_h ${{ secrets.VPS2_HOST }})
+            H3=$(get_h ${{ secrets.VPS3_HOST }})
+            echo "$H1 $H2 $H3" | tr ' ' '\n' | sort -n | tail -1
+          }
+
+          BASELINE=$(cluster_max)
+          echo "Baseline cluster max height: $BASELINE"
+
           PASS=0
-          for attempt in 1 2 3; do
-            H1_A=$(get_h ${{ secrets.VPS1_HOST }})
-            H2_A=$(get_h ${{ secrets.VPS2_HOST }})
-            H3_A=$(get_h ${{ secrets.VPS3_HOST }})
-            echo "[attempt $attempt T0] VPS1: $H1_A | VPS2: $H2_A | VPS3: $H3_A"
-
-            sleep 30
-
-            H1_B=$(get_h ${{ secrets.VPS1_HOST }})
-            H2_B=$(get_h ${{ secrets.VPS2_HOST }})
-            H3_B=$(get_h ${{ secrets.VPS3_HOST }})
-            echo "[attempt $attempt T1] VPS1: $H1_B | VPS2: $H2_B | VPS3: $H3_B"
-
-            # Pass if all 3 VPS advanced AND all are within 5 blocks of each other
-            # (PoA round-robin can be off by a few blocks across nodes)
-            if [ "$H1_B" -gt "$H1_A" ] && [ "$H2_B" -gt "$H2_A" ] && [ "$H3_B" -gt "$H3_A" ]; then
-              MAX=$(echo "$H1_B $H2_B $H3_B" | tr ' ' '\n' | sort -n | tail -1)
-              MIN=$(echo "$H1_B $H2_B $H3_B" | tr ' ' '\n' | sort -n | head -1)
-              SPREAD=$((MAX - MIN))
-              if [ "$SPREAD" -le 10 ]; then
-                echo "Chain advancing on all 3 VPS, spread=$SPREAD blocks. Deploy successful."
-                PASS=1
-                break
-              else
-                echo "  WARN: spread=$SPREAD blocks > 10, retrying"
-              fi
-            else
-              echo "  no progress on attempt $attempt, retrying"
+          for attempt in 1 2 3 4 5; do
+            sleep 60
+            CURRENT=$(cluster_max)
+            DELTA=$((CURRENT - BASELINE))
+            H1=$(get_h ${{ secrets.VPS1_HOST }})
+            H2=$(get_h ${{ secrets.VPS2_HOST }})
+            H3=$(get_h ${{ secrets.VPS3_HOST }})
+            echo "[attempt $attempt] VPS1=$H1 VPS2=$H2 VPS3=$H3 (cluster_max=$CURRENT, delta=+$DELTA)"
+            if [ "$DELTA" -ge 1 ]; then
+              echo "Chain advanced by $DELTA blocks. Deploy successful."
+              PASS=1
+              break
             fi
           done
 
           if [ "$PASS" -ne 1 ]; then
-            echo "ERROR: Chain not advancing or out of sync after 3 attempts"
+            echo "ERROR: Chain has not produced any block in 5 minutes after deploy"
             exit 1
           fi

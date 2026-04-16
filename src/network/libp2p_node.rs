@@ -44,7 +44,9 @@ use crate::types::error::{SentrixError, SentrixResult};
 /// Maximum number of verified (handshaked) peers.
 const MAX_LIBP2P_PEERS: usize = 50;
 /// Maximum new connections per IP within the rate window.
-const MAX_CONN_PER_IP: u32 = 5;
+/// Bumped to 20 to accommodate VPS2 hosting 5 validators on one IP plus
+/// reconnect overhead during deploys (each restart triggers ~3 reconnects).
+const MAX_CONN_PER_IP: u32 = 20;
 /// Rate limit window (seconds).
 const RATE_LIMIT_WINDOW_SECS: u64 = 60;
 /// Temporary ban duration for IPs that exceed rate limit (seconds).
@@ -1068,7 +1070,7 @@ mod tests {
     #[test]
     fn test_peer_limit_constant() {
         assert_eq!(MAX_LIBP2P_PEERS, 50, "max peers should be 50");
-        assert_eq!(MAX_CONN_PER_IP, 5, "max connections per IP should be 5");
+        assert_eq!(MAX_CONN_PER_IP, 20, "max connections per IP should be 20 (VPS2 has 5 vals + reconnect overhead)");
         assert_eq!(BAN_DURATION_SECS, 300, "ban duration should be 5 minutes");
     }
 
