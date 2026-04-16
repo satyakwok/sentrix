@@ -203,7 +203,86 @@ pub async fn jsonrpc_handler(
             Ok(json!(to_hex_u128(wei)))
         }
         "eth_sendRawTransaction" => {
-            Err((-32601, "eth_sendRawTransaction not yet supported — use POST /transactions REST API"))
+            // Decode RLP-encoded signed Ethereum transaction (legacy or EIP-1559/2930/4844).
+            // Recover sender, convert to Sentrix Transaction format, add to mempool.
+            if !state.read().await.is_evm_active() {
+                return Json(JsonRpcResponse::err(id, -32000, "EVM not active yet"));
+            }
+            let raw_hex = params[0].as_str().unwrap_or("").trim_start_matches("0x");
+            let raw_bytes = match hex::decode(raw_hex) {
+                Ok(b) => b,
+                Err(_) => return Json(JsonRpcResponse::err(id, -32602, "invalid hex")),
+            };
+
+            use alloy_consensus::TxEnvelope;
+            use alloy_eips::eip2718::Decodable2718;
+
+            let envelope: TxEnvelope = match TxEnvelope::decode_2718(&mut raw_bytes.as_slice()) {
+                Ok(env) => env,
+                Err(e) => return Json(JsonRpcResponse::err(id, -32602,
+                    &format!("RLP decode failed: {}", e))),
+            };
+
+            // Recover sender address from signature
+            use alloy_consensus::Transaction as AlloyTx;
+            use alloy_consensus::transaction::SignerRecoverable;
+            let sender: alloy_primitives::Address = match envelope.recover_signer() {
+                Ok(addr) => addr,
+                Err(e) => return Json(JsonRpcResponse::err(id, -32602,
+                    &format!("signer recovery failed: {}", e))),
+            };
+            let sender_str = format!("0x{}", hex::encode(sender.as_slice()));
+
+            // Extract tx fields
+            let nonce = envelope.nonce();
+            let gas_limit = envelope.gas_limit();
+            let value_u256: alloy_primitives::U256 = envelope.value();
+            let data_bytes = envelope.input().to_vec();
+            let to_kind = envelope.kind();
+            let chain_id = envelope.chain_id().unwrap_or(0);
+
+            // Convert Ethereum value (wei) to Sentrix sentri (1 SRX = 1e18 wei = 1e8 sentri)
+            // 1 sentri = 1e10 wei
+            let value_wei: u128 = value_u256.try_into().unwrap_or(u128::MAX);
+            let amount_sentri = (value_wei / 10_000_000_000u128) as u64;
+
+            // Build Sentrix Transaction. txid = keccak256 of raw bytes (Ethereum tx hash)
+            use sha3::{Keccak256, Digest as _};
+            let tx_hash = Keccak256::digest(&raw_bytes);
+            let txid = hex::encode(tx_hash);
+
+            let to_str = match to_kind {
+                alloy_primitives::TxKind::Call(addr) => format!("0x{}", hex::encode(addr.as_slice())),
+                alloy_primitives::TxKind::Create => crate::core::transaction::TOKEN_OP_ADDRESS.to_string(),
+            };
+
+            // Encode EVM call data as hex in the data field (will be decoded by block_executor)
+            let evm_data = format!("EVM:{}:{}", gas_limit, hex::encode(&data_bytes));
+
+            let sentrix_tx = Transaction {
+                txid: txid.clone(),
+                from_address: sender_str,
+                to_address: to_str,
+                amount: amount_sentri,
+                fee: crate::core::transaction::MIN_TX_FEE,
+                nonce,
+                data: evm_data,
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+                chain_id,
+                signature: hex::encode(&raw_bytes), // store full raw tx for re-execution
+                public_key: String::new(), // not needed — sender derived from signature
+            };
+
+            let mut bc = state.write().await;
+            match bc.add_to_mempool(sentrix_tx) {
+                Ok(()) => Ok(json!(format!("0x{}", txid))),
+                Err(e) => {
+                    return Json(JsonRpcResponse::err(id, -32603, &e.to_string()));
+                }
+            }
         }
         "eth_call" => {
             // Execute a read-only EVM call without state mutation.

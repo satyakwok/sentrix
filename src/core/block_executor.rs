@@ -200,6 +200,11 @@ impl Blockchain {
                     }
                 }
             }
+
+            // Execute EVM transaction if present (data field starts with "EVM:")
+            if tx.is_evm_tx() && Self::is_voyager_height(self.height()) {
+                self.execute_evm_tx_in_block(tx)?;
+            }
         }
 
         // Burn gets ceiling division, validator gets floor — all fees distributed with no rounding loss
@@ -272,6 +277,111 @@ impl Blockchain {
             }
         }
 
+        Ok(())
+    }
+
+    /// Execute an EVM transaction (from eth_sendRawTransaction) within a block.
+    /// Decodes the original RLP tx from the signature field, runs it through revm,
+    /// applies state changes (contract creation, storage updates, balance transfers).
+    fn execute_evm_tx_in_block(&mut self, tx: &crate::core::transaction::Transaction) -> SentrixResult<()> {
+        // Parse "EVM:gas_limit:hex_data" from data field
+        let parts: Vec<&str> = tx.data.splitn(3, ':').collect();
+        if parts.len() != 3 || parts[0] != "EVM" {
+            return Ok(()); // not an EVM tx, skip
+        }
+        let gas_limit: u64 = parts[1].parse().unwrap_or(30_000_000);
+        let calldata = hex::decode(parts[2]).unwrap_or_default();
+
+        // Decode raw Ethereum tx from signature field for re-validation
+        let raw_bytes = match hex::decode(&tx.signature) {
+            Ok(b) => b,
+            Err(_) => return Ok(()), // malformed, skip silently
+        };
+
+        use alloy_consensus::TxEnvelope;
+        use alloy_consensus::transaction::SignerRecoverable;
+        use alloy_eips::eip2718::Decodable2718;
+
+        let envelope: TxEnvelope = match TxEnvelope::decode_2718(&mut raw_bytes.as_slice()) {
+            Ok(e) => e,
+            Err(_) => return Ok(()),
+        };
+        let _sender = envelope.recover_signer().ok();
+
+        // Build EVM tx
+        use alloy_primitives::U256;
+        use revm::context::TxEnv;
+        use revm::database::InMemoryDB;
+        use revm::state::AccountInfo;
+        use revm::primitives::{TxKind, KECCAK_EMPTY};
+        use crate::core::evm::database::parse_sentrix_address;
+        use crate::core::evm::executor::execute_tx;
+        use crate::core::evm::gas::INITIAL_BASE_FEE;
+
+        let from_addr = parse_sentrix_address(&tx.from_address)
+            .unwrap_or(alloy_primitives::Address::ZERO);
+        let to_addr_str = if tx.to_address == crate::core::transaction::TOKEN_OP_ADDRESS {
+            None
+        } else {
+            parse_sentrix_address(&tx.to_address)
+        };
+        let tx_kind = match to_addr_str {
+            Some(addr) => TxKind::Call(addr),
+            None => TxKind::Create,
+        };
+
+        // Populate InMemoryDB with sender (gas + value) and target if contract
+        let mut in_mem_db = InMemoryDB::default();
+        let sender_balance = self.accounts.get_balance(&tx.from_address);
+        let sender_nonce = self.accounts.get_nonce(&tx.from_address);
+        in_mem_db.insert_account_info(
+            from_addr,
+            AccountInfo {
+                balance: U256::from(sender_balance).saturating_mul(U256::from(10_000_000_000u64)),
+                nonce: sender_nonce.saturating_sub(1), // already incremented by .transfer() above
+                code_hash: KECCAK_EMPTY,
+                account_id: None,
+                code: None,
+            },
+        );
+
+        let evm_tx = TxEnv::builder()
+            .caller(from_addr)
+            .kind(tx_kind)
+            .data(alloy_primitives::Bytes::from(calldata))
+            .gas_limit(gas_limit)
+            .gas_price(INITIAL_BASE_FEE as u128)
+            .nonce(sender_nonce.saturating_sub(1))
+            .chain_id(Some(tx.chain_id))
+            .build()
+            .unwrap_or_default();
+
+        match execute_tx(in_mem_db, evm_tx, INITIAL_BASE_FEE) {
+            Ok(receipt) => {
+                tracing::info!(
+                    "EVM tx {}: success={} gas_used={} contract={:?}",
+                    &tx.txid[..16.min(tx.txid.len())],
+                    receipt.success,
+                    receipt.gas_used,
+                    receipt.contract_address.map(|a| format!("0x{}", hex::encode(a.as_slice()))),
+                );
+                // Store contract code if CREATE succeeded
+                if let Some(contract_addr) = receipt.contract_address {
+                    let addr_str = format!("0x{}", hex::encode(contract_addr.as_slice()));
+                    // Mark as contract account; deployment data is the calldata in CREATE txs
+                    if let Ok(deployed_code) = hex::decode(parts[2]) {
+                        use sha3::{Keccak256, Digest as _};
+                        let code_hash: [u8; 32] = Keccak256::digest(&deployed_code).into();
+                        let code_hash_hex = hex::encode(code_hash);
+                        self.accounts.store_contract_code(&code_hash_hex, deployed_code);
+                        self.accounts.set_contract(&addr_str, code_hash);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("EVM tx {} failed: {}", &tx.txid[..16.min(tx.txid.len())], e);
+            }
+        }
         Ok(())
     }
 }

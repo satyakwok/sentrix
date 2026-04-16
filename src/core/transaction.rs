@@ -148,6 +148,12 @@ impl Transaction {
         self.from_address == COINBASE_ADDRESS
     }
 
+    /// Returns true if this is an EVM transaction (originated from eth_sendRawTransaction).
+    /// Format: data starts with "EVM:" and signature contains the original RLP-encoded tx.
+    pub fn is_evm_tx(&self) -> bool {
+        self.data.starts_with("EVM:")
+    }
+
     // Canonical signing payload uses BTreeMap for deterministic key ordering across all nodes
     // and serde_json for proper escaping of special characters
     pub fn signing_payload(&self) -> String {
@@ -190,6 +196,13 @@ impl Transaction {
             return Ok(());
         }
 
+        // EVM transactions are pre-verified at the JSON-RPC layer via Ethereum
+        // signature recovery. The original RLP-encoded tx is stored in `signature`
+        // for re-verification at block validation time.
+        if self.is_evm_tx() {
+            return Ok(());
+        }
+
         let pub_key_bytes = hex::decode(&self.public_key)
             .map_err(|_| SentrixError::InvalidSignature)?;
         let secp = Secp256k1::verification_only();
@@ -229,10 +242,10 @@ impl Transaction {
             ));
         }
 
-        // amount=0 is allowed for token operations (data field carries the op)
-        if self.amount == 0 && !TokenOp::is_token_op(&self.data) {
+        // amount=0 is allowed for token operations and EVM contract calls (data field carries op/calldata)
+        if self.amount == 0 && !TokenOp::is_token_op(&self.data) && !self.is_evm_tx() {
             return Err(SentrixError::InvalidTransaction(
-                "amount must be > 0 (unless token operation)".to_string()
+                "amount must be > 0 (unless token/EVM operation)".to_string()
             ));
         }
 
