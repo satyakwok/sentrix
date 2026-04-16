@@ -103,8 +103,10 @@ jobs:
       - name: Stop VPS3 nodes
         run: |
           ssh -i ~/.ssh/id_rsa_vps3 ${{ secrets.VPS3_USER }}@${{ secrets.VPS3_HOST }} "
-            sudo systemctl stop sentrix-testnet || true
-            echo 'stopped sentrix-testnet'
+            for svc in sentrix-testnet-val1 sentrix-testnet-val2 sentrix-testnet-val3 sentrix-testnet-val4; do
+              sudo systemctl stop \$svc 2>/dev/null || true
+              echo \"  stopped \$svc\"
+            done
             sudo systemctl stop sentrix-core || true
             echo 'stopped sentrix-core'
           "
@@ -175,8 +177,11 @@ jobs:
           ssh -i ~/.ssh/id_rsa_vps3 ${{ secrets.VPS3_USER }}@${{ secrets.VPS3_HOST }} "
             sudo systemctl start sentrix-core
             echo 'VPS3 sentrix-core started'
-            sudo systemctl start sentrix-testnet
-            echo 'VPS3 sentrix-testnet started'
+            for svc in sentrix-testnet-val1 sentrix-testnet-val2 sentrix-testnet-val3 sentrix-testnet-val4; do
+              sudo systemctl start \$svc
+              sleep 1
+              echo \"  started \$svc\"
+            done
           "
 
       # Phase 5: Health check — verify chain is advancing on all VPS

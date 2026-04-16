@@ -1049,6 +1049,32 @@ async fn cmd_start(
                                 BftAction::TimeoutAdvanceRound => {
                                     bft.advance_round();
                                     tracing::info!("BFT timeout — round {}", bft.round());
+                                    // After round advance, check if WE are the new proposer
+                                    // If yes, create a new block proposal for this round
+                                    let bc_r = shared_clone.read().await;
+                                    let we_propose = bft.is_proposer(&bc_r.stake_registry);
+                                    drop(bc_r);
+                                    if we_propose {
+                                        let mut bc = shared_clone.write().await;
+                                        if let Ok(block) = bc.create_block_voyager(&wallet.address) {
+                                            let block_hash = block.hash.clone();
+                                            let block_data = bincode::serialize(&block).unwrap_or_default();
+                                            let mut proposal = Proposal {
+                                                height: bft.height(),
+                                                round: bft.round(),
+                                                block_hash: block_hash.clone(),
+                                                block_data,
+                                                proposer: wallet.address.clone(),
+                                                signature: vec![],
+                                            };
+                                            proposal.sign(&validator_secret_key);
+                                            drop(bc);
+                                            lp2p_clone.broadcast_bft_proposal(&proposal).await;
+                                            proposed_block = Some(block);
+                                            let _ = bft.on_own_proposal(&block_hash);
+                                            tracing::info!("BFT: proposed block for new round {}", bft.round());
+                                        }
+                                    }
                                     break;
                                 }
                                 BftAction::SkipRound => {
