@@ -633,13 +633,19 @@ impl StakeRegistry {
             return None;
         }
 
-        // Deterministic selection based on height + round
-        let selector = (height as u128)
-            .wrapping_mul(31)
-            .wrapping_add(round as u128)
-            .wrapping_mul(7)
-            % (total_weight as u128);
-        let selector = selector as u64;
+        // Deterministic selection based on height + round — use SHA-256 hash
+        // to ensure uniform distribution across total_weight range.
+        // Previous naive (height*31+round)*7 % total_weight always produced
+        // small values → always picked the first validator.
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(height.to_le_bytes());
+        hasher.update(round.to_le_bytes());
+        let hash = hasher.finalize();
+        // Take first 8 bytes as u64 for selector
+        let mut sel_bytes = [0u8; 8];
+        sel_bytes.copy_from_slice(&hash[..8]);
+        let selector = u64::from_le_bytes(sel_bytes) % total_weight;
 
         for (addr, cumulative) in &weights {
             if selector < *cumulative {
