@@ -4,12 +4,12 @@
 // Handles: tx ordering by priority fee, gas metering, state diffs,
 // and fee distribution (base_fee burned, priority_fee to validator).
 
+use crate::core::evm::gas::BLOCK_GAS_LIMIT;
 use alloy_primitives::Address;
 use revm::context::TxEnv;
 use revm::context::result::ExecutionResult;
 use revm::database::InMemoryDB;
 use revm::{ExecuteEvm, MainBuilder, MainContext};
-use crate::core::evm::gas::BLOCK_GAS_LIMIT;
 
 /// Result of executing a single EVM transaction.
 #[derive(Debug, Clone)]
@@ -29,20 +29,12 @@ pub struct TxReceipt {
 /// Execute a single EVM transaction against an in-memory database.
 ///
 /// The db is consumed. Returns the receipt and the accumulated state changes.
-pub fn execute_tx(
-    db: InMemoryDB,
-    tx: TxEnv,
-    block_base_fee: u64,
-) -> Result<TxReceipt, String> {
+pub fn execute_tx(db: InMemoryDB, tx: TxEnv, block_base_fee: u64) -> Result<TxReceipt, String> {
     execute_tx_inner(db, tx, block_base_fee, false)
 }
 
 /// Read-only variant — disables balance/nonce checks for eth_call.
-pub fn execute_call(
-    db: InMemoryDB,
-    tx: TxEnv,
-    block_base_fee: u64,
-) -> Result<TxReceipt, String> {
+pub fn execute_call(db: InMemoryDB, tx: TxEnv, block_base_fee: u64) -> Result<TxReceipt, String> {
     execute_tx_inner(db, tx, block_base_fee, true)
 }
 
@@ -106,10 +98,10 @@ fn execute_tx_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::evm::gas::INITIAL_BASE_FEE;
     use alloy_primitives::U256;
     use revm::primitives::TxKind;
     use revm::state::AccountInfo;
-    use crate::core::evm::gas::INITIAL_BASE_FEE;
 
     #[test]
     fn test_simple_transfer() {

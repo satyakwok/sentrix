@@ -3,11 +3,11 @@
 //
 // Tests the full flow: stake → epoch transition → BFT round → finalize → rewards
 
-use sentrix::core::staking::{StakeRegistry, MIN_SELF_STAKE};
-use sentrix::core::epoch::{EpochManager, EPOCH_LENGTH};
-use sentrix::core::slashing::{SlashingEngine, LIVENESS_WINDOW};
-use sentrix::core::bft::{BftEngine, BftPhase, BftAction};
-use sentrix::core::bft_messages::{Prevote, Precommit, supermajority_threshold};
+use sentrix::core::bft::{BftAction, BftEngine, BftPhase};
+use sentrix::core::bft_messages::{Precommit, Prevote, supermajority_threshold};
+use sentrix::core::epoch::{EPOCH_LENGTH, EpochManager};
+use sentrix::core::slashing::{LIVENESS_WINDOW, SlashingEngine};
+use sentrix::core::staking::{MIN_SELF_STAKE, StakeRegistry};
 
 fn setup_21_validators() -> StakeRegistry {
     let mut reg = StakeRegistry::new();
@@ -21,7 +21,8 @@ fn setup_21_validators() -> StakeRegistry {
 }
 
 fn total_active_stake(reg: &StakeRegistry) -> u64 {
-    reg.active_set.iter()
+    reg.active_set
+        .iter()
         .filter_map(|a| reg.get_validator(a))
         .map(|v| v.total_stake())
         .sum()
@@ -36,7 +37,8 @@ fn test_full_stake_delegate_epoch_cycle() {
     assert_eq!(epoch.current_epoch.validator_set.len(), 21);
 
     // Delegator stakes to val000
-    reg.delegate("0xdelegator1", "0xval000", 50_000_000_000, 100).unwrap();
+    reg.delegate("0xdelegator1", "0xval000", 50_000_000_000, 100)
+        .unwrap();
 
     // Epoch transition — delegation takes effect
     let released = epoch.transition(&mut reg, EPOCH_LENGTH - 1).unwrap();
@@ -57,7 +59,8 @@ fn test_undelegate_unbonding_release() {
 
     // Delegate then undelegate
     reg.delegate("0xdel1", "0xval000", 10_000_000, 100).unwrap();
-    reg.undelegate("0xdel1", "0xval000", 5_000_000, 200).unwrap();
+    reg.undelegate("0xdel1", "0xval000", 5_000_000, 200)
+        .unwrap();
 
     // Unbonding not matured yet at normal epoch boundary
     let released = epoch.transition(&mut reg, EPOCH_LENGTH - 1).unwrap();
@@ -121,7 +124,8 @@ fn test_bft_full_round_with_21_validators() {
     // 2. Collect 15+ prevotes
     for i in 1..=16 {
         let pv = Prevote {
-            height: 1000, round: 0,
+            height: 1000,
+            round: 0,
             block_hash: Some("block_1000".into()),
             validator: format!("0xval{:03}", i),
             signature: vec![],
@@ -135,13 +139,20 @@ fn test_bft_full_round_with_21_validators() {
     let mut finalized = false;
     for i in 0..=16 {
         let pc = Precommit {
-            height: 1000, round: 0,
+            height: 1000,
+            round: 0,
             block_hash: Some("block_1000".into()),
             validator: format!("0xval{:03}", i),
             signature: vec![],
         };
         let action = engine.on_precommit_weighted(&pc, per_val);
-        if let BftAction::FinalizeBlock { height, block_hash, justification, .. } = action {
+        if let BftAction::FinalizeBlock {
+            height,
+            block_hash,
+            justification,
+            ..
+        } = action
+        {
             assert_eq!(height, 1000);
             assert_eq!(block_hash, "block_1000");
             assert!(justification.has_supermajority(total));
@@ -168,7 +179,8 @@ fn test_bft_timeout_nil_round() {
     // Collect nil prevotes
     for i in 1..=16 {
         let pv = Prevote {
-            height: 500, round: 0,
+            height: 500,
+            round: 0,
             block_hash: None,
             validator: format!("0xval{:03}", i),
             signature: vec![],
@@ -181,7 +193,8 @@ fn test_bft_timeout_nil_round() {
     let mut skipped = false;
     for i in 0..=16 {
         let pc = Precommit {
-            height: 500, round: 0,
+            height: 500,
+            round: 0,
             block_hash: None,
             validator: format!("0xval{:03}", i),
             signature: vec![],
@@ -197,14 +210,17 @@ fn test_bft_timeout_nil_round() {
 #[test]
 fn test_reward_distribution_with_commission() {
     let mut reg = StakeRegistry::new();
-    reg.register_validator("0xproposer", MIN_SELF_STAKE, 1000, 0).unwrap(); // 10% commission
-    reg.delegate("0xdel1", "0xproposer", MIN_SELF_STAKE, 0).unwrap(); // equal delegation
+    reg.register_validator("0xproposer", MIN_SELF_STAKE, 1000, 0)
+        .unwrap(); // 10% commission
+    reg.delegate("0xdel1", "0xproposer", MIN_SELF_STAKE, 0)
+        .unwrap(); // equal delegation
     reg.update_active_set();
 
     let block_reward = 100_000_000; // 1 SRX
-    let fee_share = 50_000_000;     // 0.5 SRX from fees
+    let fee_share = 50_000_000; // 0.5 SRX from fees
 
-    reg.distribute_reward("0xproposer", block_reward, fee_share).unwrap();
+    reg.distribute_reward("0xproposer", block_reward, fee_share)
+        .unwrap();
 
     let v = reg.get_validator("0xproposer").unwrap();
     // Total reward = 150M sentri
@@ -215,7 +231,12 @@ fn test_reward_distribution_with_commission() {
     assert!(v.pending_rewards > 0);
     // Allow small rounding variance
     let expected = 82_500_000u64;
-    assert!(v.pending_rewards.abs_diff(expected) < 2, "expected ~{}, got {}", expected, v.pending_rewards);
+    assert!(
+        v.pending_rewards.abs_diff(expected) < 2,
+        "expected ~{}, got {}",
+        expected,
+        v.pending_rewards
+    );
 }
 
 #[test]
@@ -237,10 +258,12 @@ fn test_supermajority_threshold_21_validators() {
 fn test_redelegate_between_validators() {
     let mut reg = setup_21_validators();
 
-    reg.delegate("0xdel1", "0xval000", 10_000_000_000, 100).unwrap();
+    reg.delegate("0xdel1", "0xval000", 10_000_000_000, 100)
+        .unwrap();
 
     // Redelegate half to val001
-    reg.redelegate("0xdel1", "0xval000", "0xval001", 5_000_000_000, 200).unwrap();
+    reg.redelegate("0xdel1", "0xval000", "0xval001", 5_000_000_000, 200)
+        .unwrap();
 
     let v0 = reg.get_validator("0xval000").unwrap();
     let v1 = reg.get_validator("0xval001").unwrap();
@@ -281,7 +304,8 @@ fn test_epoch_validator_rotation() {
     epoch.initialize(&reg, 0);
 
     // Register a new whale validator that should enter top 21
-    reg.register_validator("0xwhale", MIN_SELF_STAKE * 100, 500, 1000).unwrap();
+    reg.register_validator("0xwhale", MIN_SELF_STAKE * 100, 500, 1000)
+        .unwrap();
 
     // Epoch transition
     epoch.transition(&mut reg, EPOCH_LENGTH - 1).unwrap();

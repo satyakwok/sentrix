@@ -17,6 +17,7 @@ use std::time::Instant;
 
 use futures::StreamExt;
 use libp2p::{
+    Multiaddr, PeerId, Swarm, SwarmBuilder,
     core::ConnectedPoint,
     gossipsub,
     identity::Keypair,
@@ -25,17 +26,15 @@ use libp2p::{
     noise,
     request_response::{self, OutboundRequestId},
     swarm::SwarmEvent,
-    tcp,
-    yamux,
-    Multiaddr, PeerId, Swarm, SwarmBuilder,
+    tcp, yamux,
 };
 use tokio::sync::mpsc;
 
 use crate::core::block::Block;
 use crate::core::transaction::Transaction;
 use crate::network::behaviour::{
-    SentrixBehaviour, SentrixBehaviourEvent, SentrixRequest, SentrixResponse,
-    GossipBlock, GossipTransaction, BLOCKS_TOPIC, TXS_TOPIC,
+    BLOCKS_TOPIC, GossipBlock, GossipTransaction, SentrixBehaviour, SentrixBehaviourEvent,
+    SentrixRequest, SentrixResponse, TXS_TOPIC,
 };
 use crate::network::node::{NodeEvent, SharedBlockchain};
 use crate::types::error::{SentrixError, SentrixResult};
@@ -105,7 +104,11 @@ impl LibP2pNode {
             }
         });
 
-        Ok(Self { local_peer_id, cmd_tx, blockchain })
+        Ok(Self {
+            local_peer_id,
+            cmd_tx,
+            blockchain,
+        })
     }
 
     /// Start listening on `addr` (e.g. `/ip4/0.0.0.0/tcp/30303`).
@@ -126,7 +129,10 @@ impl LibP2pNode {
 
     /// Broadcast a new block to all peers via gossipsub.
     pub async fn broadcast_block(&self, block: &Block) {
-        let _ = self.cmd_tx.send(SwarmCommand::GossipBlock(Box::new(block.clone()))).await;
+        let _ = self
+            .cmd_tx
+            .send(SwarmCommand::GossipBlock(Box::new(block.clone())))
+            .await;
     }
 
     /// Broadcast a new transaction to all peers via gossipsub.
@@ -136,19 +142,25 @@ impl LibP2pNode {
 
     /// Broadcast a BFT proposal to all verified peers.
     pub async fn broadcast_bft_proposal(&self, proposal: &crate::core::bft_messages::Proposal) {
-        let req = SentrixRequest::BftProposal { proposal: Box::new(proposal.clone()) };
+        let req = SentrixRequest::BftProposal {
+            proposal: Box::new(proposal.clone()),
+        };
         let _ = self.cmd_tx.send(SwarmCommand::Broadcast(req)).await;
     }
 
     /// Broadcast a BFT prevote to all verified peers.
     pub async fn broadcast_bft_prevote(&self, prevote: &crate::core::bft_messages::Prevote) {
-        let req = SentrixRequest::BftPrevote { prevote: prevote.clone() };
+        let req = SentrixRequest::BftPrevote {
+            prevote: prevote.clone(),
+        };
         let _ = self.cmd_tx.send(SwarmCommand::Broadcast(req)).await;
     }
 
     /// Broadcast a BFT precommit to all verified peers.
     pub async fn broadcast_bft_precommit(&self, precommit: &crate::core::bft_messages::Precommit) {
-        let req = SentrixRequest::BftPrecommit { precommit: precommit.clone() };
+        let req = SentrixRequest::BftPrecommit {
+            precommit: precommit.clone(),
+        };
         let _ = self.cmd_tx.send(SwarmCommand::Broadcast(req)).await;
     }
 
@@ -159,7 +171,10 @@ impl LibP2pNode {
 
     /// Add a known peer to the Kademlia routing table (bootstrap node).
     pub async fn add_kad_peer(&self, peer_id: PeerId, addr: Multiaddr) {
-        let _ = self.cmd_tx.send(SwarmCommand::AddKadPeer(peer_id, addr)).await;
+        let _ = self
+            .cmd_tx
+            .send(SwarmCommand::AddKadPeer(peer_id, addr))
+            .await;
     }
 
     /// Trigger a Kademlia bootstrap (random walk to discover peers).
@@ -170,7 +185,12 @@ impl LibP2pNode {
     /// Returns the number of currently verified (handshaked) peers.
     pub async fn peer_count(&self) -> usize {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        if self.cmd_tx.send(SwarmCommand::GetPeerCount(tx)).await.is_ok() {
+        if self
+            .cmd_tx
+            .send(SwarmCommand::GetPeerCount(tx))
+            .await
+            .is_ok()
+        {
             rx.await.unwrap_or(0)
         } else {
             0
@@ -244,7 +264,10 @@ impl IpRateLimiter {
             if entry.0 > MAX_CONN_PER_IP {
                 tracing::warn!(
                     "libp2p: IP {} exceeded rate limit ({} connections in {}s), banning for {}s",
-                    ip, entry.0, RATE_LIMIT_WINDOW_SECS, BAN_DURATION_SECS
+                    ip,
+                    entry.0,
+                    RATE_LIMIT_WINDOW_SECS,
+                    BAN_DURATION_SECS
                 );
                 self.bans.insert(ip, now);
                 return false;
@@ -288,7 +311,9 @@ async fn run_swarm(
         })
         .map_err(|e| SentrixError::NetworkError(format!("behaviour init: {e}")))?
         // Keep connections alive indefinitely — don't close idle connections.
-        .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(std::time::Duration::from_secs(u64::MAX)))
+        .with_swarm_config(|cfg| {
+            cfg.with_idle_connection_timeout(std::time::Duration::from_secs(u64::MAX))
+        })
         .build();
 
     let our_chain_id = blockchain.read().await.chain_id;
@@ -440,19 +465,25 @@ async fn on_swarm_event(
         }
 
         // Send our Handshake as soon as a TCP connection is established.
-        SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
+        SwarmEvent::ConnectionEstablished {
+            peer_id, endpoint, ..
+        } => {
             // Fix 1: Reject if we already have MAX_LIBP2P_PEERS verified peers.
             if verified_peers.len() >= MAX_LIBP2P_PEERS {
                 tracing::warn!(
                     "libp2p: peer limit reached ({}/{}), rejecting {}",
-                    verified_peers.len(), MAX_LIBP2P_PEERS, peer_id
+                    verified_peers.len(),
+                    MAX_LIBP2P_PEERS,
+                    peer_id
                 );
                 let _ = swarm.disconnect_peer_id(peer_id);
                 return;
             }
 
             // Fix 2: Per-IP rate limiting — reject if IP is banned or over limit.
-            if let Some(ip) = extract_ip(&endpoint) && !ip_limiter.check_and_track(ip) {
+            if let Some(ip) = extract_ip(&endpoint)
+                && !ip_limiter.check_and_track(ip)
+            {
                 tracing::warn!("libp2p: IP {} rate-limited, rejecting {}", ip, peer_id);
                 let _ = swarm.disconnect_peer_id(peer_id);
                 return;
@@ -470,14 +501,24 @@ async fn on_swarm_event(
             pending_handshakes.insert(req_id, peer_id);
         }
 
-        SwarmEvent::ConnectionClosed { peer_id, num_established, .. } => {
-            tracing::info!("libp2p: connection to {} closed ({} remaining)", peer_id, num_established);
+        SwarmEvent::ConnectionClosed {
+            peer_id,
+            num_established,
+            ..
+        } => {
+            tracing::info!(
+                "libp2p: connection to {} closed ({} remaining)",
+                peer_id,
+                num_established
+            );
             // Only remove from verified peers when ALL connections to this peer are gone.
             // Bidirectional dialing creates 2 connections per peer; libp2p prunes duplicates.
             // Previously, we removed on ANY close, orphaning the surviving connection.
             if num_established == 0 {
                 verified_peers.remove(&peer_id);
-                let _ = event_tx.send(NodeEvent::PeerDisconnected(peer_id.to_string())).await;
+                let _ = event_tx
+                    .send(NodeEvent::PeerDisconnected(peer_id.to_string()))
+                    .await;
             }
         }
 
@@ -496,7 +537,7 @@ async fn on_swarm_event(
         }
 
         SwarmEvent::Behaviour(SentrixBehaviourEvent::Identify(
-            libp2p::identify::Event::Received { peer_id, info, .. }
+            libp2p::identify::Event::Received { peer_id, info, .. },
         )) => {
             // When Identify completes, add the peer's listen addresses to Kademlia.
             for addr in info.listen_addrs {
@@ -506,69 +547,79 @@ async fn on_swarm_event(
 
         SwarmEvent::Behaviour(SentrixBehaviourEvent::Identify(_)) => {}
 
-        SwarmEvent::Behaviour(SentrixBehaviourEvent::Kademlia(kad_event)) => {
-            match kad_event {
-                kad::Event::RoutingUpdated { peer, .. } => {
-                    tracing::debug!("kademlia: routing updated for {}", peer);
-                }
-                kad::Event::OutboundQueryProgressed {
-                    result: kad::QueryResult::Bootstrap(Ok(stats)), ..
-                } => {
-                    tracing::debug!("kademlia: bootstrap step, {} remaining", stats.num_remaining);
-                }
-                _ => {}
+        SwarmEvent::Behaviour(SentrixBehaviourEvent::Kademlia(kad_event)) => match kad_event {
+            kad::Event::RoutingUpdated { peer, .. } => {
+                tracing::debug!("kademlia: routing updated for {}", peer);
             }
-        }
+            kad::Event::OutboundQueryProgressed {
+                result: kad::QueryResult::Bootstrap(Ok(stats)),
+                ..
+            } => {
+                tracing::debug!(
+                    "kademlia: bootstrap step, {} remaining",
+                    stats.num_remaining
+                );
+            }
+            _ => {}
+        },
 
-        SwarmEvent::Behaviour(SentrixBehaviourEvent::Gossipsub(
-            gossipsub::Event::Message { message, propagation_source, .. }
-        )) => {
+        SwarmEvent::Behaviour(SentrixBehaviourEvent::Gossipsub(gossipsub::Event::Message {
+            message,
+            propagation_source,
+            ..
+        })) => {
             let topic = message.topic.as_str();
             if topic == BLOCKS_TOPIC {
-                    match bincode::deserialize::<GossipBlock>(&message.data) {
-                        Ok(gossip) => {
-                            let bc = blockchain.clone();
-                            let etx = event_tx.clone();
-                            let peer = propagation_source;
-                            tokio::spawn(async move {
-                                let mut chain = bc.write().await;
-                                match chain.add_block(gossip.block.clone()) {
-                                    Ok(()) => {
-                                        let updated = chain.latest_block().ok().cloned()
-                                            .unwrap_or(gossip.block);
-                                        drop(chain);
-                                        let _ = etx.send(NodeEvent::NewBlock(updated)).await;
-                                    }
-                                    Err(e) => {
-                                        tracing::debug!("gossip block from {} rejected: {}", peer, e);
-                                    }
-                                }
-                            });
-                        }
-                        Err(e) => tracing::warn!("gossip: bad block message: {}", e),
-                    }
-                } else if topic == TXS_TOPIC {
-                    match bincode::deserialize::<GossipTransaction>(&message.data) {
-                        Ok(gossip) => {
-                            let bc = blockchain.clone();
-                            let etx = event_tx.clone();
-                            tokio::spawn(async move {
-                                let mut chain = bc.write().await;
-                                if chain.add_to_mempool(gossip.transaction.clone()).is_ok() {
+                match bincode::deserialize::<GossipBlock>(&message.data) {
+                    Ok(gossip) => {
+                        let bc = blockchain.clone();
+                        let etx = event_tx.clone();
+                        let peer = propagation_source;
+                        tokio::spawn(async move {
+                            let mut chain = bc.write().await;
+                            match chain.add_block(gossip.block.clone()) {
+                                Ok(()) => {
+                                    let updated =
+                                        chain.latest_block().ok().cloned().unwrap_or(gossip.block);
                                     drop(chain);
-                                    let _ = etx.send(NodeEvent::NewTransaction(gossip.transaction)).await;
+                                    let _ = etx.send(NodeEvent::NewBlock(updated)).await;
                                 }
-                            });
-                        }
-                        Err(e) => tracing::warn!("gossip: bad tx message: {}", e),
+                                Err(e) => {
+                                    tracing::debug!("gossip block from {} rejected: {}", peer, e);
+                                }
+                            }
+                        });
                     }
+                    Err(e) => tracing::warn!("gossip: bad block message: {}", e),
                 }
+            } else if topic == TXS_TOPIC {
+                match bincode::deserialize::<GossipTransaction>(&message.data) {
+                    Ok(gossip) => {
+                        let bc = blockchain.clone();
+                        let etx = event_tx.clone();
+                        tokio::spawn(async move {
+                            let mut chain = bc.write().await;
+                            if chain.add_to_mempool(gossip.transaction.clone()).is_ok() {
+                                drop(chain);
+                                let _ = etx
+                                    .send(NodeEvent::NewTransaction(gossip.transaction))
+                                    .await;
+                            }
+                        });
+                    }
+                    Err(e) => tracing::warn!("gossip: bad tx message: {}", e),
+                }
+            }
         }
 
         SwarmEvent::Behaviour(SentrixBehaviourEvent::Gossipsub(_)) => {}
 
         SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
-            tracing::warn!("libp2p: outgoing connection error to {:?}: {}", peer_id, error);
+            tracing::warn!(
+                "libp2p: outgoing connection error to {:?}: {}",
+                peer_id,
+                error
+            );
         }
 
         SwarmEvent::IncomingConnectionError { error, .. } => {
@@ -598,7 +649,10 @@ async fn on_rr_event(
         // ── Inbound: peer sent us a request ──────────────
         RrEvent::Message {
             peer,
-            message: RrMessage::Request { request, channel, .. }, ..
+            message: RrMessage::Request {
+                request, channel, ..
+            },
+            ..
         } => {
             on_inbound_request(
                 peer,
@@ -616,7 +670,12 @@ async fn on_rr_event(
         // ── Inbound: peer replied to one of our requests ─
         RrEvent::Message {
             peer,
-            message: RrMessage::Response { request_id, response }, ..
+            message:
+                RrMessage::Response {
+                    request_id,
+                    response,
+                },
+            ..
         } => {
             // Check if this response matches a pending GetBlocks sync request
             let followup = on_inbound_response(
@@ -633,15 +692,20 @@ async fn on_rr_event(
             .await;
             // If sync returned more blocks to fetch, send another GetBlocks
             if let Some((next_peer, from_height)) = followup {
-                let req_id = swarm.behaviour_mut().rr.send_request(
-                    &next_peer,
-                    SentrixRequest::GetBlocks { from_height },
-                );
+                let req_id = swarm
+                    .behaviour_mut()
+                    .rr
+                    .send_request(&next_peer, SentrixRequest::GetBlocks { from_height });
                 pending_syncs.insert(req_id, next_peer);
             }
         }
 
-        RrEvent::OutboundFailure { peer, request_id, error, .. } => {
+        RrEvent::OutboundFailure {
+            peer,
+            request_id,
+            error,
+            ..
+        } => {
             pending_handshakes.remove(&request_id);
             pending_syncs.remove(&request_id);
             tracing::warn!("libp2p: outbound failure to {}: {}", peer, error);
@@ -670,14 +734,21 @@ async fn on_inbound_request(
 ) {
     match request {
         // ── Handshake ────────────────────────────────────
-        SentrixRequest::Handshake { chain_id, height, .. } => {
+        SentrixRequest::Handshake {
+            chain_id, height, ..
+        } => {
             if chain_id != our_chain_id {
                 tracing::warn!(
                     "libp2p: rejected peer {}: chain_id mismatch ({} vs {})",
-                    peer, chain_id, our_chain_id
+                    peer,
+                    chain_id,
+                    our_chain_id
                 );
                 // Respond with Ack so the peer gets a clean close
-                let _ = swarm.behaviour_mut().rr.send_response(channel, SentrixResponse::Ack);
+                let _ = swarm
+                    .behaviour_mut()
+                    .rr
+                    .send_response(channel, SentrixResponse::Ack);
                 // Disconnect the peer
                 let _ = swarm.disconnect_peer_id(peer);
                 return;
@@ -687,9 +758,14 @@ async fn on_inbound_request(
             if verified_peers.len() >= MAX_LIBP2P_PEERS && !verified_peers.contains(&peer) {
                 tracing::warn!(
                     "libp2p: peer limit reached ({}/{}), rejecting handshake from {}",
-                    verified_peers.len(), MAX_LIBP2P_PEERS, peer
+                    verified_peers.len(),
+                    MAX_LIBP2P_PEERS,
+                    peer
                 );
-                let _ = swarm.behaviour_mut().rr.send_response(channel, SentrixResponse::Ack);
+                let _ = swarm
+                    .behaviour_mut()
+                    .rr
+                    .send_response(channel, SentrixResponse::Ack);
                 let _ = swarm.disconnect_peer_id(peer);
                 return;
             }
@@ -704,15 +780,24 @@ async fn on_inbound_request(
             };
             drop(bc);
 
-            if swarm.behaviour_mut().rr.send_response(channel, resp).is_ok() {
+            if swarm
+                .behaviour_mut()
+                .rr
+                .send_response(channel, resp)
+                .is_ok()
+            {
                 verified_peers.insert(peer);
-                let _ = event_tx.send(NodeEvent::PeerConnected(peer.to_string())).await;
+                let _ = event_tx
+                    .send(NodeEvent::PeerConnected(peer.to_string()))
+                    .await;
 
                 if height > our_height {
-                    let _ = event_tx.send(NodeEvent::SyncNeeded {
-                        peer_addr: peer.to_string(),
-                        peer_height: height,
-                    }).await;
+                    let _ = event_tx
+                        .send(NodeEvent::SyncNeeded {
+                            peer_addr: peer.to_string(),
+                            peer_height: height,
+                        })
+                        .await;
                 }
             }
         }
@@ -720,7 +805,10 @@ async fn on_inbound_request(
         // ── NewBlock — apply to chain (spawned to avoid blocking swarm) ──
         SentrixRequest::NewBlock { block } => {
             // ACK immediately so peer doesn't timeout waiting for response
-            let _ = swarm.behaviour_mut().rr.send_response(channel, SentrixResponse::Ack);
+            let _ = swarm
+                .behaviour_mut()
+                .rr
+                .send_response(channel, SentrixResponse::Ack);
             // Process block in background — never hold write lock in swarm loop
             let bc = blockchain.clone();
             let etx = event_tx.clone();
@@ -744,7 +832,10 @@ async fn on_inbound_request(
 
         // ── NewTransaction — add to mempool (spawned) ────
         SentrixRequest::NewTransaction { transaction } => {
-            let _ = swarm.behaviour_mut().rr.send_response(channel, SentrixResponse::Ack);
+            let _ = swarm
+                .behaviour_mut()
+                .rr
+                .send_response(channel, SentrixResponse::Ack);
             let bc = blockchain.clone();
             let etx = event_tx.clone();
             tokio::spawn(async move {
@@ -764,45 +855,54 @@ async fn on_inbound_request(
                 .filter_map(|i| bc.get_block(i).cloned())
                 .collect();
             drop(bc);
-            let _ = swarm.behaviour_mut().rr.send_response(
-                channel,
-                SentrixResponse::BlocksResponse { blocks },
-            );
+            let _ = swarm
+                .behaviour_mut()
+                .rr
+                .send_response(channel, SentrixResponse::BlocksResponse { blocks });
         }
 
         // ── GetHeight ────────────────────────────────────
         SentrixRequest::GetHeight => {
             let height = blockchain.read().await.height();
-            let _ = swarm.behaviour_mut().rr.send_response(
-                channel,
-                SentrixResponse::HeightResponse { height },
-            );
+            let _ = swarm
+                .behaviour_mut()
+                .rr
+                .send_response(channel, SentrixResponse::HeightResponse { height });
         }
 
         // ── Ping ─────────────────────────────────────────
         SentrixRequest::Ping => {
             let height = blockchain.read().await.height();
-            let _ = swarm.behaviour_mut().rr.send_response(
-                channel,
-                SentrixResponse::Pong { height },
-            );
+            let _ = swarm
+                .behaviour_mut()
+                .rr
+                .send_response(channel, SentrixResponse::Pong { height });
         }
 
         // ── BFT Proposal ────────────────────────────────
         SentrixRequest::BftProposal { proposal } => {
-            let _ = swarm.behaviour_mut().rr.send_response(channel, SentrixResponse::Ack);
+            let _ = swarm
+                .behaviour_mut()
+                .rr
+                .send_response(channel, SentrixResponse::Ack);
             let _ = event_tx.send(NodeEvent::BftProposal(*proposal)).await;
         }
 
         // ── BFT Prevote ─────────────────────────────────
         SentrixRequest::BftPrevote { prevote } => {
-            let _ = swarm.behaviour_mut().rr.send_response(channel, SentrixResponse::Ack);
+            let _ = swarm
+                .behaviour_mut()
+                .rr
+                .send_response(channel, SentrixResponse::Ack);
             let _ = event_tx.send(NodeEvent::BftPrevote(prevote)).await;
         }
 
         // ── BFT Precommit ───────────────────────────────
         SentrixRequest::BftPrecommit { precommit } => {
-            let _ = swarm.behaviour_mut().rr.send_response(channel, SentrixResponse::Ack);
+            let _ = swarm
+                .behaviour_mut()
+                .rr
+                .send_response(channel, SentrixResponse::Ack);
             let _ = event_tx.send(NodeEvent::BftPrecommit(precommit)).await;
         }
     }
@@ -844,7 +944,10 @@ async fn on_inbound_response(
                 match chain.add_block(block.clone()) {
                     Ok(()) => {
                         // Use H2 (post-add_block state_root hash) — not the raw peer block (PR #78).
-                        let updated = chain.latest_block().ok().cloned()
+                        let updated = chain
+                            .latest_block()
+                            .ok()
+                            .cloned()
                             .unwrap_or_else(|| block.clone());
                         let _ = etx.send(NodeEvent::NewBlock(updated)).await;
                         synced += 1;
@@ -868,7 +971,9 @@ async fn on_inbound_response(
     }
 
     // ── Handshake response ──────────────────────────────────
-    if let SentrixResponse::Handshake { chain_id, height, .. } = response
+    if let SentrixResponse::Handshake {
+        chain_id, height, ..
+    } = response
         && let Some(expected_peer) = pending_handshakes.remove(&request_id)
     {
         if expected_peer != peer {
@@ -878,19 +983,25 @@ async fn on_inbound_response(
         if chain_id != our_chain_id {
             tracing::warn!(
                 "libp2p: handshake response from {} has wrong chain_id ({} vs {})",
-                peer, chain_id, our_chain_id
+                peer,
+                chain_id,
+                our_chain_id
             );
             return None;
         }
         let our_height = blockchain.read().await.height();
         verified_peers.insert(peer);
-        let _ = event_tx.send(NodeEvent::PeerConnected(peer.to_string())).await;
+        let _ = event_tx
+            .send(NodeEvent::PeerConnected(peer.to_string()))
+            .await;
 
         if height > our_height {
-            let _ = event_tx.send(NodeEvent::SyncNeeded {
-                peer_addr: peer.to_string(),
-                peer_height: height,
-            }).await;
+            let _ = event_tx
+                .send(NodeEvent::SyncNeeded {
+                    peer_addr: peer.to_string(),
+                    peer_height: height,
+                })
+                .await;
             // Initiate sync from this peer
             return Some((peer, our_height + 1));
         }
@@ -903,9 +1014,9 @@ async fn on_inbound_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::blockchain::Blockchain;
     use std::sync::Arc;
     use tokio::sync::RwLock;
-    use crate::core::blockchain::Blockchain;
 
     fn make_blockchain() -> SharedBlockchain {
         Arc::new(RwLock::new(Blockchain::new("admin".to_string())))
@@ -981,11 +1092,14 @@ mod tests {
         // Connect B → A.  We must get the actual bound port from the swarm listener,
         // but since we don't have an easy way to query it here, just verify that
         // sending a dial command doesn't panic (integration covered in CI via full node test).
-        let dial_result = node_b.connect_peer(
-            make_multiaddr("127.0.0.1", 30399).expect("addr")
-        ).await;
+        let dial_result = node_b
+            .connect_peer(make_multiaddr("127.0.0.1", 30399).expect("addr"))
+            .await;
         // connect_peer sends to channel — should always succeed (swarm handles actual dial)
-        assert!(dial_result.is_ok(), "connect_peer should not fail to send command");
+        assert!(
+            dial_result.is_ok(),
+            "connect_peer should not fail to send command"
+        );
     }
 
     // ── extract_ip helper ────────────────────────────────
@@ -999,7 +1113,10 @@ mod tests {
             port_use: libp2p::core::transport::PortUse::Reuse,
         };
         let ip = extract_ip(&endpoint);
-        assert_eq!(ip, Some(IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1))));
+        assert_eq!(
+            ip,
+            Some(IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)))
+        );
     }
 
     #[test]
@@ -1070,7 +1187,10 @@ mod tests {
     #[test]
     fn test_peer_limit_constant() {
         assert_eq!(MAX_LIBP2P_PEERS, 50, "max peers should be 50");
-        assert_eq!(MAX_CONN_PER_IP, 20, "max connections per IP should be 20 (VPS2 has 5 vals + reconnect overhead)");
+        assert_eq!(
+            MAX_CONN_PER_IP, 20,
+            "max connections per IP should be 20 (VPS2 has 5 vals + reconnect overhead)"
+        );
         assert_eq!(BAN_DURATION_SECS, 300, "ban duration should be 5 minutes");
     }
 
@@ -1097,12 +1217,7 @@ mod tests {
 
         let node = LibP2pNode::new(keypair, bc, etx).expect("node");
         // No peers — broadcast should silently do nothing
-        let block = crate::core::block::Block::new(
-            0,
-            "0".to_string(),
-            vec![],
-            "v1".to_string(),
-        );
+        let block = crate::core::block::Block::new(0, "0".to_string(), vec![], "v1".to_string());
         node.broadcast_block(&block).await; // must not panic
     }
 }

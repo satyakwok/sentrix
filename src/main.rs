@@ -2,18 +2,18 @@
 #![allow(missing_docs)]
 
 use clap::{Parser, Subcommand};
+use libp2p::Multiaddr;
+use sentrix::api::routes::{SharedState, create_router};
+use sentrix::core::blockchain::Blockchain;
+use sentrix::core::transaction::{TOKEN_OP_ADDRESS, TokenOp, Transaction};
+use sentrix::network::libp2p_node::{LibP2pNode, make_multiaddr};
+use sentrix::network::node::{DEFAULT_PORT, NodeEvent};
+use sentrix::storage::db::Storage;
+use sentrix::wallet::keystore::Keystore;
+use sentrix::wallet::wallet::Wallet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
-use sentrix::core::blockchain::Blockchain;
-use sentrix::core::transaction::{Transaction, TokenOp, TOKEN_OP_ADDRESS};
-use sentrix::wallet::wallet::Wallet;
-use sentrix::wallet::keystore::Keystore;
-use sentrix::storage::db::Storage;
-use sentrix::api::routes::{create_router, SharedState};
-use sentrix::network::node::{DEFAULT_PORT, NodeEvent};
-use sentrix::network::libp2p_node::{LibP2pNode, make_multiaddr};
-use libp2p::Multiaddr;
 
 const DEFAULT_API_PORT: u16 = 8545;
 
@@ -36,11 +36,19 @@ fn get_data_dir() -> std::path::PathBuf {
 }
 
 fn get_db_path() -> String {
-    get_data_dir().join("chain.db").to_str().unwrap_or("data/chain.db").to_string()
+    get_data_dir()
+        .join("chain.db")
+        .to_str()
+        .unwrap_or("data/chain.db")
+        .to_string()
 }
 
 fn get_wallets_dir() -> String {
-    get_data_dir().join("wallets").to_str().unwrap_or("data/wallets").to_string()
+    get_data_dir()
+        .join("wallets")
+        .to_str()
+        .unwrap_or("data/wallets")
+        .to_string()
 }
 
 #[derive(Parser)]
@@ -91,13 +99,9 @@ enum Commands {
         action: ChainCommands,
     },
     /// Check account balance
-    Balance {
-        address: String,
-    },
+    Balance { address: String },
     /// Transaction history for an address
-    History {
-        address: String,
-    },
+    History { address: String },
     /// Token operations (SRX-20)
     Token {
         #[command(subcommand)]
@@ -121,9 +125,7 @@ enum WalletCommands {
         password: Option<String>,
     },
     /// Show wallet info from keystore file
-    Info {
-        keystore_file: String,
-    },
+    Info { keystore_file: String },
     /// Encrypt a private key to a keystore file
     Encrypt {
         private_key: String,
@@ -182,39 +184,57 @@ enum ValidatorCommands {
 enum TokenCommands {
     /// Deploy a new SRX-20 token
     Deploy {
-        #[arg(long)] name: String,
-        #[arg(long)] symbol: String,
-        #[arg(long, default_value_t = 18)] decimals: u8,
-        #[arg(long)] supply: u64,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        symbol: String,
+        #[arg(long, default_value_t = 18)]
+        decimals: u8,
+        #[arg(long)]
+        supply: u64,
         /// Deployer private key (prefer SENTRIX_DEPLOYER_KEY env var)
-        #[arg(long)] deployer_key: Option<String>,
-        #[arg(long, default_value_t = 100_000)] fee: u64,
+        #[arg(long)]
+        deployer_key: Option<String>,
+        #[arg(long, default_value_t = 100_000)]
+        fee: u64,
     },
     /// Transfer tokens
     Transfer {
-        #[arg(long)] contract: String,
-        #[arg(long)] to: String,
-        #[arg(long)] amount: u64,
+        #[arg(long)]
+        contract: String,
+        #[arg(long)]
+        to: String,
+        #[arg(long)]
+        amount: u64,
         /// Sender private key (prefer SENTRIX_FROM_KEY env var)
-        #[arg(long)] from_key: Option<String>,
-        #[arg(long, default_value_t = 10_000)] gas: u64,
+        #[arg(long)]
+        from_key: Option<String>,
+        #[arg(long, default_value_t = 10_000)]
+        gas: u64,
     },
     /// Burn tokens (remove from circulation)
     Burn {
-        #[arg(long)] contract: String,
-        #[arg(long)] amount: u64,
+        #[arg(long)]
+        contract: String,
+        #[arg(long)]
+        amount: u64,
         /// Sender private key (prefer SENTRIX_FROM_KEY env var)
-        #[arg(long)] from_key: Option<String>,
-        #[arg(long, default_value_t = 10_000)] gas: u64,
+        #[arg(long)]
+        from_key: Option<String>,
+        #[arg(long, default_value_t = 10_000)]
+        gas: u64,
     },
     /// Check token balance
     Balance {
-        #[arg(long)] contract: String,
-        #[arg(long)] address: String,
+        #[arg(long)]
+        contract: String,
+        #[arg(long)]
+        address: String,
     },
     /// Show token info
     Info {
-        #[arg(long)] contract: String,
+        #[arg(long)]
+        contract: String,
     },
     /// List all deployed tokens
     List,
@@ -247,16 +267,29 @@ async fn main() -> anyhow::Result<()> {
 
         Commands::Wallet { action } => match action {
             WalletCommands::Generate { password } => cmd_wallet_generate(password)?,
-            WalletCommands::Import { private_key, password } => cmd_wallet_import(&private_key, password)?,
+            WalletCommands::Import {
+                private_key,
+                password,
+            } => cmd_wallet_import(&private_key, password)?,
             WalletCommands::Info { keystore_file } => cmd_wallet_info(&keystore_file)?,
-            WalletCommands::Encrypt { private_key, password, output } =>
-                cmd_wallet_encrypt(&private_key, password, output)?,
-            WalletCommands::Decrypt { keystore_file, password } =>
-                cmd_wallet_decrypt(&keystore_file, password)?,
+            WalletCommands::Encrypt {
+                private_key,
+                password,
+                output,
+            } => cmd_wallet_encrypt(&private_key, password, output)?,
+            WalletCommands::Decrypt {
+                keystore_file,
+                password,
+            } => cmd_wallet_decrypt(&keystore_file, password)?,
         },
 
         Commands::Validator { action } => match action {
-            ValidatorCommands::Add { address, name, public_key, admin_key } => {
+            ValidatorCommands::Add {
+                address,
+                name,
+                public_key,
+                admin_key,
+            } => {
                 let key = resolve_key(admin_key, "SENTRIX_ADMIN_KEY", "admin key")?;
                 cmd_validator_add(&address, &name, &public_key, &key)?;
             }
@@ -268,14 +301,23 @@ async fn main() -> anyhow::Result<()> {
                 let key = resolve_key(admin_key, "SENTRIX_ADMIN_KEY", "admin key")?;
                 cmd_validator_toggle(&address, &key)?;
             }
-            ValidatorCommands::Rename { address, new_name, admin_key } => {
+            ValidatorCommands::Rename {
+                address,
+                new_name,
+                admin_key,
+            } => {
                 let key = resolve_key(admin_key, "SENTRIX_ADMIN_KEY", "admin key")?;
                 cmd_validator_rename(&address, &new_name, &key)?;
             }
             ValidatorCommands::List => cmd_validator_list()?,
         },
 
-        Commands::Start { validator_key, validator_keystore, port, peers } => {
+        Commands::Start {
+            validator_key,
+            validator_keystore,
+            port,
+            peers,
+        } => {
             // Resolve validator key: --validator-key > --validator-keystore > env var
             let resolved_key = if let Some(key) = validator_key {
                 Some(key)
@@ -300,15 +342,33 @@ async fn main() -> anyhow::Result<()> {
         },
 
         Commands::Token { action } => match action {
-            TokenCommands::Deploy { name, symbol, decimals, supply, deployer_key, fee } => {
+            TokenCommands::Deploy {
+                name,
+                symbol,
+                decimals,
+                supply,
+                deployer_key,
+                fee,
+            } => {
                 let key = resolve_key(deployer_key, "SENTRIX_DEPLOYER_KEY", "deployer key")?;
                 cmd_token_deploy(&name, &symbol, decimals, supply, &key, fee)?;
             }
-            TokenCommands::Transfer { contract, to, amount, from_key, gas } => {
+            TokenCommands::Transfer {
+                contract,
+                to,
+                amount,
+                from_key,
+                gas,
+            } => {
                 let key = resolve_key(from_key, "SENTRIX_FROM_KEY", "from key")?;
                 cmd_token_transfer(&contract, &to, amount, &key, gas)?;
             }
-            TokenCommands::Burn { contract, amount, from_key, gas } => {
+            TokenCommands::Burn {
+                contract,
+                amount,
+                from_key,
+                gas,
+            } => {
                 let key = resolve_key(from_key, "SENTRIX_FROM_KEY", "from key")?;
                 cmd_token_burn(&contract, amount, &key, gas)?;
             }
@@ -334,11 +394,20 @@ async fn main() -> anyhow::Result<()> {
 // Resolve private key from CLI arg or env var; warn if passed via CLI (shell history risk)
 fn resolve_key(cli_arg: Option<String>, env_var: &str, label: &str) -> anyhow::Result<String> {
     if let Some(ref key) = cli_arg {
-        eprintln!("WARNING: passing {} as CLI argument is insecure. Prefer {} env var.", label, env_var);
+        eprintln!(
+            "WARNING: passing {} as CLI argument is insecure. Prefer {} env var.",
+            label, env_var
+        );
         return Ok(key.clone());
     }
-    std::env::var(env_var)
-        .map_err(|_| anyhow::anyhow!("{} required. Use --{} or set {} env var", label, label.replace(' ', "-"), env_var))
+    std::env::var(env_var).map_err(|_| {
+        anyhow::anyhow!(
+            "{} required. Use --{} or set {} env var",
+            label,
+            label.replace(' ', "-"),
+            env_var
+        )
+    })
 }
 
 // ── Command implementations ──────────────────────────────
@@ -397,11 +466,18 @@ fn cmd_wallet_info(keystore_file: &str) -> anyhow::Result<()> {
     println!("Keystore info:");
     println!("  Address: {}", keystore.address);
     println!("  Cipher:  {}", keystore.crypto.cipher);
-    println!("  KDF:     {} ({} iterations)", keystore.crypto.kdf, keystore.crypto.kdf_iterations);
+    println!(
+        "  KDF:     {} ({} iterations)",
+        keystore.crypto.kdf, keystore.crypto.kdf_iterations
+    );
     Ok(())
 }
 
-fn cmd_wallet_encrypt(private_key: &str, password: Option<String>, output: Option<String>) -> anyhow::Result<()> {
+fn cmd_wallet_encrypt(
+    private_key: &str,
+    password: Option<String>,
+    output: Option<String>,
+) -> anyhow::Result<()> {
     let pwd = resolve_password(password)?;
     let wallet = Wallet::from_private_key(private_key)?;
     let keystore = Keystore::encrypt(&wallet, &pwd)?;
@@ -449,9 +525,15 @@ fn resolve_password(cli_password: Option<String>) -> anyhow::Result<String> {
     Ok(pw)
 }
 
-fn cmd_validator_add(address: &str, name: &str, public_key: &str, admin_key: &str) -> anyhow::Result<()> {
+fn cmd_validator_add(
+    address: &str,
+    name: &str,
+    public_key: &str,
+    admin_key: &str,
+) -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let mut bc = storage.load_blockchain()?
+    let mut bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized. Run: sentrix init"))?;
 
     let admin_wallet = Wallet::from_private_key(admin_key)?;
@@ -469,15 +551,22 @@ fn cmd_validator_add(address: &str, name: &str, public_key: &str, admin_key: &st
 
 fn cmd_validator_list() -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let bc = storage.load_blockchain()?
+    let bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
 
-    println!("Validators ({} total, {} active):",
-        bc.authority.validator_count(), bc.authority.active_count());
+    println!(
+        "Validators ({} total, {} active):",
+        bc.authority.validator_count(),
+        bc.authority.active_count()
+    );
     for v in bc.authority.active_validators() {
-        println!("  [{}] {} — {} blocks produced",
+        println!(
+            "  [{}] {} — {} blocks produced",
             if v.is_active { "ACTIVE" } else { "INACTIVE" },
-            v.name, v.blocks_produced);
+            v.name,
+            v.blocks_produced
+        );
         println!("      Address: {}", v.address);
     }
     Ok(())
@@ -485,10 +574,12 @@ fn cmd_validator_list() -> anyhow::Result<()> {
 
 fn cmd_validator_remove(address: &str, admin_key: &str) -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let mut bc = storage.load_blockchain()?
+    let mut bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
     let admin_wallet = Wallet::from_private_key(admin_key)?;
-    bc.authority.remove_validator(&admin_wallet.address, address)?;
+    bc.authority
+        .remove_validator(&admin_wallet.address, address)?;
     storage.save_blockchain(&bc)?;
     println!("Validator removed: {}", address);
     Ok(())
@@ -496,10 +587,13 @@ fn cmd_validator_remove(address: &str, admin_key: &str) -> anyhow::Result<()> {
 
 fn cmd_validator_toggle(address: &str, admin_key: &str) -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let mut bc = storage.load_blockchain()?
+    let mut bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
     let admin_wallet = Wallet::from_private_key(admin_key)?;
-    let is_active = bc.authority.toggle_validator(&admin_wallet.address, address)?;
+    let is_active = bc
+        .authority
+        .toggle_validator(&admin_wallet.address, address)?;
     storage.save_blockchain(&bc)?;
     let status = if is_active { "ACTIVE" } else { "INACTIVE" };
     println!("Validator {} toggled to: {}", address, status);
@@ -508,10 +602,12 @@ fn cmd_validator_toggle(address: &str, admin_key: &str) -> anyhow::Result<()> {
 
 fn cmd_validator_rename(address: &str, new_name: &str, admin_key: &str) -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let mut bc = storage.load_blockchain()?
+    let mut bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
     let admin_wallet = Wallet::from_private_key(admin_key)?;
-    bc.authority.rename_validator(&admin_wallet.address, address, new_name.to_string())?;
+    bc.authority
+        .rename_validator(&admin_wallet.address, address, new_name.to_string())?;
     storage.save_blockchain(&bc)?;
     println!("Validator {} renamed to: {}", address, new_name);
     Ok(())
@@ -523,7 +619,8 @@ async fn cmd_start(
     peers_str: String,
 ) -> anyhow::Result<()> {
     let storage = Arc::new(Storage::open(&get_db_path())?);
-    let bc = storage.load_blockchain()?
+    let bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized. Run: sentrix init"))?;
 
     let shared: SharedState = Arc::new(RwLock::new(bc));
@@ -548,7 +645,8 @@ async fn cmd_start(
             .map_err(|e| anyhow::anyhow!("decode node keypair: {}", e))?
     } else {
         let kp = libp2p::identity::Keypair::generate_ed25519();
-        let bytes = kp.to_protobuf_encoding()
+        let bytes = kp
+            .to_protobuf_encoding()
             .map_err(|e| anyhow::anyhow!("encode node keypair: {}", e))?;
         std::fs::write(&keypair_path, bytes)
             .map_err(|e| anyhow::anyhow!("write node keypair: {}", e))?;
@@ -561,14 +659,18 @@ async fn cmd_start(
             .map_err(|e| anyhow::anyhow!("libp2p init: {}", e))?,
     );
 
-    let listen_addr = make_multiaddr("0.0.0.0", port)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
-    lp2p.listen_on(listen_addr).await
+    let listen_addr = make_multiaddr("0.0.0.0", port).map_err(|e| anyhow::anyhow!("{}", e))?;
+    lp2p.listen_on(listen_addr)
+        .await
         .map_err(|e| anyhow::anyhow!("{}", e))?;
     println!("libp2p listening on /ip4/0.0.0.0/tcp/{}", port);
 
     // Connect to bootstrap peers
-    for peer_str in peers_str.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+    for peer_str in peers_str
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         let parts: Vec<&str> = peer_str.splitn(2, ':').collect();
         if let [host, port_part] = parts.as_slice()
             && let Ok(p) = port_part.parse::<u16>()
@@ -590,7 +692,8 @@ async fn cmd_start(
     let shutdown_flag = Arc::new(AtomicBool::new(false));
 
     // BFT event channel — forwards P2P BFT votes from event handler to validator loop
-    let (bft_tx, bft_rx) = tokio::sync::mpsc::channel::<sentrix::core::bft_messages::BftMessage>(256);
+    let (bft_tx, bft_rx) =
+        tokio::sync::mpsc::channel::<sentrix::core::bft_messages::BftMessage>(256);
 
     // Validator loop
     if let Some(key_hex) = validator_key {
@@ -603,7 +706,7 @@ async fn cmd_start(
         let mut bft_rx = bft_rx; // move receiver into this task
         let validator_secret_key = wallet.get_secret_key()?;
         tokio::spawn(async move {
-            use sentrix::core::bft::{BftEngine, BftAction};
+            use sentrix::core::bft::{BftAction, BftEngine};
             use sentrix::core::bft_messages::{BftMessage, Proposal};
             use sentrix::core::block::Block;
 
@@ -625,7 +728,10 @@ async fn cmd_start(
                     if Blockchain::is_voyager_height(bc.height().saturating_add(1)) {
                         drop(bc);
                         let mut bc = shared_clone.write().await;
-                        tracing::info!("Voyager fork reached at height {} — activating DPoS", bc.height());
+                        tracing::info!(
+                            "Voyager fork reached at height {} — activating DPoS",
+                            bc.height()
+                        );
                         if let Err(e) = bc.activate_voyager() {
                             tracing::warn!("activate_voyager failed: {}", e);
                         }
@@ -639,7 +745,10 @@ async fn cmd_start(
                     if Blockchain::is_evm_height(bc.height().saturating_add(1)) {
                         drop(bc);
                         let mut bc = shared_clone.write().await;
-                        tracing::info!("EVM fork reached at height {} — activating EVM", bc.height());
+                        tracing::info!(
+                            "EVM fork reached at height {} — activating EVM",
+                            bc.height()
+                        );
                         bc.activate_evm();
                         evm_activated = true;
                     }
@@ -661,7 +770,10 @@ async fn cmd_start(
                                         let updated = bc.latest_block().ok().cloned();
                                         Some((height, updated))
                                     }
-                                    Err(e) => { tracing::warn!("add_block failed: {}", e); None }
+                                    Err(e) => {
+                                        tracing::warn!("add_block failed: {}", e);
+                                        None
+                                    }
                                 }
                             }
                             Err(_) => None,
@@ -688,7 +800,10 @@ async fn cmd_start(
                 // Compute total active stake and current chain height (read lock)
                 let (current_height, total_active_stake) = {
                     let bc = shared_clone.read().await;
-                    let total: u64 = bc.stake_registry.active_set.iter()
+                    let total: u64 = bc
+                        .stake_registry
+                        .active_set
+                        .iter()
                         .filter_map(|a| bc.stake_registry.get_validator(a))
                         .map(|v| v.total_stake())
                         .sum();
@@ -703,7 +818,8 @@ async fn cmd_start(
                     Some(bft) => bft.height() <= current_height,
                 };
                 if need_new_round {
-                    let mut bft = BftEngine::new(next_height, wallet.address.clone(), total_active_stake);
+                    let mut bft =
+                        BftEngine::new(next_height, wallet.address.clone(), total_active_stake);
                     proposed_block = None;
 
                     // Check if we're the proposer for this height+round
@@ -713,7 +829,9 @@ async fn cmd_start(
                     let active_count = bc.stake_registry.active_count();
                     tracing::info!(
                         "BFT round start: height={} round={} active={} proposer={:?} we_are={}",
-                        next_height, bft.round(), active_count,
+                        next_height,
+                        bft.round(),
+                        active_count,
                         expected_proposer.as_deref().map(|a| &a[..12.min(a.len())]),
                         we_are_proposer,
                     );
@@ -753,8 +871,11 @@ async fn cmd_start(
                                             signed_pv.sign(&validator_secret_key);
                                             lp2p_clone.broadcast_bft_prevote(&signed_pv).await;
                                             let bc = shared_clone.read().await;
-                                            let our_stake = bc.stake_registry.get_validator(&wallet.address)
-                                                .map(|v| v.total_stake()).unwrap_or(0);
+                                            let our_stake = bc
+                                                .stake_registry
+                                                .get_validator(&wallet.address)
+                                                .map(|v| v.total_stake())
+                                                .unwrap_or(0);
                                             drop(bc);
                                             action = bft.on_prevote_weighted(prevote, our_stake);
                                             continue;
@@ -764,13 +885,22 @@ async fn cmd_start(
                                             signed_pc.sign(&validator_secret_key);
                                             lp2p_clone.broadcast_bft_precommit(&signed_pc).await;
                                             let bc = shared_clone.read().await;
-                                            let our_stake = bc.stake_registry.get_validator(&wallet.address)
-                                                .map(|v| v.total_stake()).unwrap_or(0);
+                                            let our_stake = bc
+                                                .stake_registry
+                                                .get_validator(&wallet.address)
+                                                .map(|v| v.total_stake())
+                                                .unwrap_or(0);
                                             drop(bc);
-                                            action = bft.on_precommit_weighted(precommit, our_stake);
+                                            action =
+                                                bft.on_precommit_weighted(precommit, our_stake);
                                             continue;
                                         }
-                                        BftAction::FinalizeBlock { height, round, block_hash: _, ref justification } => {
+                                        BftAction::FinalizeBlock {
+                                            height,
+                                            round,
+                                            block_hash: _,
+                                            ref justification,
+                                        } => {
                                             if let Some(mut blk) = proposed_block.take() {
                                                 blk.round = round;
                                                 blk.justification = Some(justification.clone());
@@ -779,20 +909,27 @@ async fn cmd_start(
                                                 let mut bc = shared_clone.write().await;
                                                 match bc.add_block(blk) {
                                                     Ok(()) => {
-                                                        let updated = bc.latest_block().ok().cloned();
+                                                        let updated =
+                                                            bc.latest_block().ok().cloned();
 
                                                         // ── Post-block Voyager bookkeeping ──
                                                         let reward = bc.get_block_reward();
                                                         bc.epoch_manager.record_block(reward);
 
-                                                        let active = bc.stake_registry.active_set.clone();
+                                                        let active =
+                                                            bc.stake_registry.active_set.clone();
                                                         let signers = vec![proposer.clone()];
-                                                        bc.slashing.record_block_signatures(&active, &signers, height);
+                                                        bc.slashing.record_block_signatures(
+                                                            &active, &signers, height,
+                                                        );
 
                                                         let validator_fee = 0;
-                                                        let _ = bc.stake_registry.distribute_reward(
-                                                            &proposer, reward, validator_fee,
-                                                        );
+                                                        let _ =
+                                                            bc.stake_registry.distribute_reward(
+                                                                &proposer,
+                                                                reward,
+                                                                validator_fee,
+                                                            );
 
                                                         if sentrix::core::epoch::EpochManager::is_epoch_boundary(height) {
                                                             tracing::info!("Epoch boundary at height {} — transitioning", height);
@@ -842,19 +979,33 @@ async fn cmd_start(
                                                             }
                                                         }
 
-                                                        tracing::info!("BFT finalized height={} round={}", height, round);
+                                                        tracing::info!(
+                                                            "BFT finalized height={} round={}",
+                                                            height,
+                                                            round
+                                                        );
 
                                                         drop(bc);
                                                         if let Some(ref saved_block) = updated {
-                                                            println!("Block {} produced by {}", height, proposer);
-                                                            let _ = storage_clone.save_block(saved_block);
+                                                            println!(
+                                                                "Block {} produced by {}",
+                                                                height, proposer
+                                                            );
+                                                            let _ = storage_clone
+                                                                .save_block(saved_block);
                                                             let bc = shared_clone.read().await;
-                                                            let _ = storage_clone.save_blockchain(&bc);
+                                                            let _ =
+                                                                storage_clone.save_blockchain(&bc);
                                                             drop(bc);
-                                                            lp2p_clone.broadcast_block(saved_block).await;
+                                                            lp2p_clone
+                                                                .broadcast_block(saved_block)
+                                                                .await;
                                                         }
                                                     }
-                                                    Err(e) => tracing::warn!("BFT add_block failed: {}", e),
+                                                    Err(e) => tracing::warn!(
+                                                        "BFT add_block failed: {}",
+                                                        e
+                                                    ),
                                                 }
                                             }
                                             break;
@@ -867,7 +1018,11 @@ async fn cmd_start(
                                         BftAction::SkipRound => {
                                             // Nil supermajority → advance round (DON'T reset engine)
                                             bft.advance_round();
-                                            tracing::warn!("BFT skip round — advanced to round {} at height {}", bft.round(), bft.height());
+                                            tracing::warn!(
+                                                "BFT skip round — advanced to round {} at height {}",
+                                                bft.round(),
+                                                bft.height()
+                                            );
                                             break;
                                         }
                                         BftAction::SyncNeeded { .. } => {
@@ -905,13 +1060,22 @@ async fn cmd_start(
                                     continue;
                                 }
                                 if !proposal.verify_sig() {
-                                    tracing::warn!("Invalid proposal signature from {}", &proposal.proposer);
+                                    tracing::warn!(
+                                        "Invalid proposal signature from {}",
+                                        &proposal.proposer
+                                    );
                                     continue;
                                 }
-                                if let Ok(block) = bincode::deserialize::<Block>(&proposal.block_data) {
+                                if let Ok(block) =
+                                    bincode::deserialize::<Block>(&proposal.block_data)
+                                {
                                     proposed_block = Some(block);
                                     let bc = shared_clone.read().await;
-                                    let a = bft.on_proposal(&proposal.block_hash, &proposal.proposer, &bc.stake_registry);
+                                    let a = bft.on_proposal(
+                                        &proposal.block_hash,
+                                        &proposal.proposer,
+                                        &bc.stake_registry,
+                                    );
                                     drop(bc);
                                     a
                                 } else {
@@ -921,29 +1085,39 @@ async fn cmd_start(
                             }
                             BftMessage::Prevote(prevote) => {
                                 if !prevote.verify_sig() {
-                                    tracing::warn!("Invalid prevote signature from {}", &prevote.validator);
+                                    tracing::warn!(
+                                        "Invalid prevote signature from {}",
+                                        &prevote.validator
+                                    );
                                     continue;
                                 }
                                 let bc = shared_clone.read().await;
-                                let stake = bc.stake_registry.get_validator(&prevote.validator)
-                                    .map(|v| v.total_stake()).unwrap_or(0);
+                                let stake = bc
+                                    .stake_registry
+                                    .get_validator(&prevote.validator)
+                                    .map(|v| v.total_stake())
+                                    .unwrap_or(0);
                                 drop(bc);
                                 bft.on_prevote_weighted(&prevote, stake)
                             }
                             BftMessage::Precommit(precommit) => {
                                 if !precommit.verify_sig() {
-                                    tracing::warn!("Invalid precommit signature from {}", &precommit.validator);
+                                    tracing::warn!(
+                                        "Invalid precommit signature from {}",
+                                        &precommit.validator
+                                    );
                                     continue;
                                 }
                                 let bc = shared_clone.read().await;
-                                let stake = bc.stake_registry.get_validator(&precommit.validator)
-                                    .map(|v| v.total_stake()).unwrap_or(0);
+                                let stake = bc
+                                    .stake_registry
+                                    .get_validator(&precommit.validator)
+                                    .map(|v| v.total_stake())
+                                    .unwrap_or(0);
                                 drop(bc);
                                 bft.on_precommit_weighted(&precommit, stake)
                             }
-                            BftMessage::RoundStatus(status) => {
-                                bft.on_round_status(&status)
-                            }
+                            BftMessage::RoundStatus(status) => bft.on_round_status(&status),
                         };
 
                         // Cascading BFT action loop for peer messages
@@ -955,8 +1129,11 @@ async fn cmd_start(
                                     signed_pv.sign(&validator_secret_key);
                                     lp2p_clone.broadcast_bft_prevote(&signed_pv).await;
                                     let bc = shared_clone.read().await;
-                                    let our_stake = bc.stake_registry.get_validator(&wallet.address)
-                                        .map(|v| v.total_stake()).unwrap_or(0);
+                                    let our_stake = bc
+                                        .stake_registry
+                                        .get_validator(&wallet.address)
+                                        .map(|v| v.total_stake())
+                                        .unwrap_or(0);
                                     drop(bc);
                                     action = bft.on_prevote_weighted(prevote, our_stake);
                                     continue;
@@ -966,13 +1143,21 @@ async fn cmd_start(
                                     signed_pc.sign(&validator_secret_key);
                                     lp2p_clone.broadcast_bft_precommit(&signed_pc).await;
                                     let bc = shared_clone.read().await;
-                                    let our_stake = bc.stake_registry.get_validator(&wallet.address)
-                                        .map(|v| v.total_stake()).unwrap_or(0);
+                                    let our_stake = bc
+                                        .stake_registry
+                                        .get_validator(&wallet.address)
+                                        .map(|v| v.total_stake())
+                                        .unwrap_or(0);
                                     drop(bc);
                                     action = bft.on_precommit_weighted(precommit, our_stake);
                                     continue;
                                 }
-                                BftAction::FinalizeBlock { height, round, block_hash: _, ref justification } => {
+                                BftAction::FinalizeBlock {
+                                    height,
+                                    round,
+                                    block_hash: _,
+                                    ref justification,
+                                } => {
                                     if let Some(mut blk) = proposed_block.take() {
                                         blk.round = round;
                                         blk.justification = Some(justification.clone());
@@ -989,11 +1174,15 @@ async fn cmd_start(
 
                                                 let active = bc.stake_registry.active_set.clone();
                                                 let signers = vec![proposer.clone()];
-                                                bc.slashing.record_block_signatures(&active, &signers, height);
+                                                bc.slashing.record_block_signatures(
+                                                    &active, &signers, height,
+                                                );
 
                                                 let validator_fee = 0;
                                                 let _ = bc.stake_registry.distribute_reward(
-                                                    &proposer, reward, validator_fee,
+                                                    &proposer,
+                                                    reward,
+                                                    validator_fee,
                                                 );
 
                                                 if sentrix::core::epoch::EpochManager::is_epoch_boundary(height) {
@@ -1044,11 +1233,18 @@ async fn cmd_start(
                                                     }
                                                 }
 
-                                                tracing::info!("BFT finalized height={} round={}", height, round);
+                                                tracing::info!(
+                                                    "BFT finalized height={} round={}",
+                                                    height,
+                                                    round
+                                                );
 
                                                 drop(bc);
                                                 if let Some(ref saved_block) = updated {
-                                                    println!("Block {} produced by {}", height, proposer);
+                                                    println!(
+                                                        "Block {} produced by {}",
+                                                        height, proposer
+                                                    );
                                                     let _ = storage_clone.save_block(saved_block);
                                                     let bc = shared_clone.read().await;
                                                     let _ = storage_clone.save_blockchain(&bc);
@@ -1071,9 +1267,11 @@ async fn cmd_start(
                                     drop(bc_r);
                                     if we_propose {
                                         let mut bc = shared_clone.write().await;
-                                        if let Ok(block) = bc.create_block_voyager(&wallet.address) {
+                                        if let Ok(block) = bc.create_block_voyager(&wallet.address)
+                                        {
                                             let block_hash = block.hash.clone();
-                                            let block_data = bincode::serialize(&block).unwrap_or_default();
+                                            let block_data =
+                                                bincode::serialize(&block).unwrap_or_default();
                                             let mut proposal = Proposal {
                                                 height: bft.height(),
                                                 round: bft.round(),
@@ -1087,7 +1285,10 @@ async fn cmd_start(
                                             lp2p_clone.broadcast_bft_proposal(&proposal).await;
                                             proposed_block = Some(block);
                                             let _ = bft.on_own_proposal(&block_hash);
-                                            tracing::info!("BFT: proposed block for new round {}", bft.round());
+                                            tracing::info!(
+                                                "BFT: proposed block for new round {}",
+                                                bft.round()
+                                            );
                                         }
                                     }
                                     break;
@@ -1095,16 +1296,22 @@ async fn cmd_start(
                                 BftAction::SkipRound => {
                                     // Nil supermajority → advance round (DON'T reset engine)
                                     bft.advance_round();
-                                    tracing::warn!("BFT skip round — advanced to round {} at height {}", bft.round(), bft.height());
+                                    tracing::warn!(
+                                        "BFT skip round — advanced to round {} at height {}",
+                                        bft.round(),
+                                        bft.height()
+                                    );
                                     // After round advance, propose if we're the new round's proposer
                                     let bc_r = shared_clone.read().await;
                                     let we_propose = bft.is_proposer(&bc_r.stake_registry);
                                     drop(bc_r);
                                     if we_propose {
                                         let mut bc = shared_clone.write().await;
-                                        if let Ok(block) = bc.create_block_voyager(&wallet.address) {
+                                        if let Ok(block) = bc.create_block_voyager(&wallet.address)
+                                        {
                                             let block_hash = block.hash.clone();
-                                            let block_data = bincode::serialize(&block).unwrap_or_default();
+                                            let block_data =
+                                                bincode::serialize(&block).unwrap_or_default();
                                             let mut proposal = Proposal {
                                                 height: bft.height(),
                                                 round: bft.round(),
@@ -1118,13 +1325,19 @@ async fn cmd_start(
                                             lp2p_clone.broadcast_bft_proposal(&proposal).await;
                                             proposed_block = Some(block);
                                             let _ = bft.on_own_proposal(&block_hash);
-                                            tracing::info!("BFT: proposed block after skip-round at round {}", bft.round());
+                                            tracing::info!(
+                                                "BFT: proposed block after skip-round at round {}",
+                                                bft.round()
+                                            );
                                         }
                                     }
                                     break;
                                 }
                                 BftAction::SyncNeeded { peer_height } => {
-                                    tracing::info!("BFT: peer at height {}, need block sync", peer_height);
+                                    tracing::info!(
+                                        "BFT: peer at height {}, need block sync",
+                                        peer_height
+                                    );
                                     break;
                                 }
                                 BftAction::Wait | BftAction::ProposeBlock => break,
@@ -1143,8 +1356,11 @@ async fn cmd_start(
                                     signed_pv.sign(&validator_secret_key);
                                     lp2p_clone.broadcast_bft_prevote(&signed_pv).await;
                                     let bc = shared_clone.read().await;
-                                    let our_stake = bc.stake_registry.get_validator(&wallet.address)
-                                        .map(|v| v.total_stake()).unwrap_or(0);
+                                    let our_stake = bc
+                                        .stake_registry
+                                        .get_validator(&wallet.address)
+                                        .map(|v| v.total_stake())
+                                        .unwrap_or(0);
                                     drop(bc);
                                     action = bft.on_prevote_weighted(prevote, our_stake);
                                     continue;
@@ -1154,22 +1370,32 @@ async fn cmd_start(
                                     signed_pc.sign(&validator_secret_key);
                                     lp2p_clone.broadcast_bft_precommit(&signed_pc).await;
                                     let bc = shared_clone.read().await;
-                                    let our_stake = bc.stake_registry.get_validator(&wallet.address)
-                                        .map(|v| v.total_stake()).unwrap_or(0);
+                                    let our_stake = bc
+                                        .stake_registry
+                                        .get_validator(&wallet.address)
+                                        .map(|v| v.total_stake())
+                                        .unwrap_or(0);
                                     drop(bc);
                                     action = bft.on_precommit_weighted(precommit, our_stake);
                                     continue;
                                 }
                                 BftAction::TimeoutAdvanceRound => {
                                     bft.advance_round();
-                                    tracing::info!("BFT timeout — advanced to round {}", bft.round());
+                                    tracing::info!(
+                                        "BFT timeout — advanced to round {}",
+                                        bft.round()
+                                    );
                                     break;
                                 }
                                 BftAction::SkipRound => {
                                     // Nil supermajority → advance round (DON'T reset engine)
                                     // Resetting would cause desync vs other validators who are advancing
                                     bft.advance_round();
-                                    tracing::warn!("BFT skip round — advanced to round {} at height {}", bft.round(), bft.height());
+                                    tracing::warn!(
+                                        "BFT skip round — advanced to round {} at height {}",
+                                        bft.round(),
+                                        bft.height()
+                                    );
                                     break;
                                 }
                                 _ => break,
@@ -1197,21 +1423,45 @@ async fn cmd_start(
                     }
                 }
                 NodeEvent::NewTransaction(_) => {}
-                NodeEvent::SyncNeeded { peer_addr, peer_height } => {
+                NodeEvent::SyncNeeded {
+                    peer_addr,
+                    peer_height,
+                } => {
                     tracing::info!("Sync needed from {} (height: {})", peer_addr, peer_height);
                 }
                 // BFT events — forward to validator loop for multi-validator consensus
                 NodeEvent::BftProposal(p) => {
-                    tracing::info!("BFT proposal: height={} round={} proposer={}", p.height, p.round, &p.proposer[..p.proposer.len().min(12)]);
-                    let _ = bft_tx_clone.send(sentrix::core::bft_messages::BftMessage::Propose(p)).await;
+                    tracing::info!(
+                        "BFT proposal: height={} round={} proposer={}",
+                        p.height,
+                        p.round,
+                        &p.proposer[..p.proposer.len().min(12)]
+                    );
+                    let _ = bft_tx_clone
+                        .send(sentrix::core::bft_messages::BftMessage::Propose(p))
+                        .await;
                 }
                 NodeEvent::BftPrevote(v) => {
-                    tracing::info!("BFT prevote: height={} round={} from={}", v.height, v.round, &v.validator[..v.validator.len().min(12)]);
-                    let _ = bft_tx_clone.send(sentrix::core::bft_messages::BftMessage::Prevote(v)).await;
+                    tracing::info!(
+                        "BFT prevote: height={} round={} from={}",
+                        v.height,
+                        v.round,
+                        &v.validator[..v.validator.len().min(12)]
+                    );
+                    let _ = bft_tx_clone
+                        .send(sentrix::core::bft_messages::BftMessage::Prevote(v))
+                        .await;
                 }
                 NodeEvent::BftPrecommit(c) => {
-                    tracing::info!("BFT precommit: height={} round={} from={}", c.height, c.round, &c.validator[..c.validator.len().min(12)]);
-                    let _ = bft_tx_clone.send(sentrix::core::bft_messages::BftMessage::Precommit(c)).await;
+                    tracing::info!(
+                        "BFT precommit: height={} round={} from={}",
+                        c.height,
+                        c.round,
+                        &c.validator[..c.validator.len().min(12)]
+                    );
+                    let _ = bft_tx_clone
+                        .send(sentrix::core::bft_messages::BftMessage::Precommit(c))
+                        .await;
                 }
             }
         }
@@ -1219,7 +1469,8 @@ async fn cmd_start(
 
     // ── Periodic reconnect to bootstrap peers ────────────
     // Collect bootstrap multiaddrs for reconnection
-    let bootstrap_addrs: Vec<Multiaddr> = peers_str.split(',')
+    let bootstrap_addrs: Vec<Multiaddr> = peers_str
+        .split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .filter_map(|peer_str| {
@@ -1240,8 +1491,14 @@ async fn cmd_start(
                 tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                 let count = lp2p_reconnect.peer_count().await;
                 if count < bootstrap_addrs.len() {
-                    tracing::info!("Reconnecting: {} peers, expected {}", count, bootstrap_addrs.len());
-                    lp2p_reconnect.reconnect_peers(bootstrap_addrs.clone()).await;
+                    tracing::info!(
+                        "Reconnecting: {} peers, expected {}",
+                        count,
+                        bootstrap_addrs.len()
+                    );
+                    lp2p_reconnect
+                        .reconnect_peers(bootstrap_addrs.clone())
+                        .await;
                 }
             }
         });
@@ -1262,11 +1519,14 @@ async fn cmd_start(
     let shutdown_signal = async move {
         #[cfg(unix)]
         {
-            use tokio::signal::unix::{signal, SignalKind};
+            use tokio::signal::unix::{SignalKind, signal};
             let mut sigterm = match signal(SignalKind::terminate()) {
                 Ok(s) => s,
                 Err(e) => {
-                    tracing::warn!("Failed to install SIGTERM handler: {} — shutdown via Ctrl+C only", e);
+                    tracing::warn!(
+                        "Failed to install SIGTERM handler: {} — shutdown via Ctrl+C only",
+                        e
+                    );
                     let _ = tokio::signal::ctrl_c().await;
                     tracing::info!("SIGINT received — shutting down");
                     return;
@@ -1312,7 +1572,8 @@ async fn cmd_start(
 
 fn cmd_chain_info() -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let bc = storage.load_blockchain()?
+    let bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
     let stats = bc.chain_stats();
     println!("{}", serde_json::to_string_pretty(&stats)?);
@@ -1321,7 +1582,8 @@ fn cmd_chain_info() -> anyhow::Result<()> {
 
 fn cmd_chain_validate() -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let bc = storage.load_blockchain()?
+    let bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
     let valid = bc.is_valid_chain_window();
     println!("Chain valid: {}", valid);
@@ -1332,7 +1594,8 @@ fn cmd_chain_validate() -> anyhow::Result<()> {
 
 fn cmd_chain_block(index: u64) -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let bc = storage.load_blockchain()?
+    let bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
     match bc.get_block(index) {
         Some(block) => println!("{}", serde_json::to_string_pretty(block)?),
@@ -1347,17 +1610,24 @@ fn cmd_chain_reset_trie() -> anyhow::Result<()> {
         anyhow::bail!("Chain not initialized.");
     }
     storage.reset_trie()?;
-    println!("Trie state cleared. Start the node normally — it will rebuild the trie from AccountDB.");
+    println!(
+        "Trie state cleared. Start the node normally — it will rebuild the trie from AccountDB."
+    );
     Ok(())
 }
 
 fn cmd_balance(address: &str) -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let bc = storage.load_blockchain()?
+    let bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
     let balance = bc.accounts.get_balance(address);
     println!("Address: {}", address);
-    println!("Balance: {} sentri ({} SRX)", balance, balance as f64 / 100_000_000.0);
+    println!(
+        "Balance: {} sentri ({} SRX)",
+        balance,
+        balance as f64 / 100_000_000.0
+    );
     Ok(())
 }
 
@@ -1402,14 +1672,19 @@ fn cmd_genesis_wallets() -> anyhow::Result<()> {
 
 fn cmd_history(address: &str) -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let bc = storage.load_blockchain()?
+    let bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
     let balance = bc.accounts.get_balance(address);
     let nonce = bc.accounts.get_nonce(address);
     let history = bc.get_address_history(address, 20, 0);
 
     println!("Address: {}", address);
-    println!("Balance: {} sentri ({} SRX)", balance, balance as f64 / 100_000_000.0);
+    println!(
+        "Balance: {} sentri ({} SRX)",
+        balance,
+        balance as f64 / 100_000_000.0
+    );
     println!("Nonce:   {}", nonce);
     println!("Transactions: {}\n", history.len());
 
@@ -1417,11 +1692,12 @@ fn cmd_history(address: &str) -> anyhow::Result<()> {
         let dir = tx["direction"].as_str().unwrap_or("?");
         let label = match dir {
             "reward" => "REWARD",
-            "in"     => "IN    ",
-            "out"    => "OUT   ",
-            _        => "?     ",
+            "in" => "IN    ",
+            "out" => "OUT   ",
+            _ => "?     ",
         };
-        println!("  [{}] {} | {} sentri | Block #{}",
+        println!(
+            "  [{}] {} | {} sentri | Block #{}",
             label,
             &tx["txid"].as_str().unwrap_or("?")[..24],
             tx["amount"],
@@ -1433,26 +1709,52 @@ fn cmd_history(address: &str) -> anyhow::Result<()> {
 
 // ── Token commands ───────────────────────────────────────
 
-fn cli_create_token_tx(bc: &mut Blockchain, wallet: &Wallet, token_op: TokenOp, fee: u64) -> anyhow::Result<String> {
+fn cli_create_token_tx(
+    bc: &mut Blockchain,
+    wallet: &Wallet,
+    token_op: TokenOp,
+    fee: u64,
+) -> anyhow::Result<String> {
     let sk = wallet.get_secret_key()?;
     let pk = wallet.get_public_key()?;
     let nonce = bc.accounts.get_nonce(&wallet.address);
     let data = token_op.encode()?;
     let tx = Transaction::new(
-        wallet.address.clone(), TOKEN_OP_ADDRESS.to_string(),
-        0, fee, nonce, data, bc.chain_id, &sk, &pk,
+        wallet.address.clone(),
+        TOKEN_OP_ADDRESS.to_string(),
+        0,
+        fee,
+        nonce,
+        data,
+        bc.chain_id,
+        &sk,
+        &pk,
     )?;
     let txid = tx.txid.clone();
     bc.add_to_mempool(tx)?;
     Ok(txid)
 }
 
-fn cmd_token_deploy(name: &str, symbol: &str, decimals: u8, supply: u64, deployer_key: &str, fee: u64) -> anyhow::Result<()> {
+fn cmd_token_deploy(
+    name: &str,
+    symbol: &str,
+    decimals: u8,
+    supply: u64,
+    deployer_key: &str,
+    fee: u64,
+) -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let mut bc = storage.load_blockchain()?
+    let mut bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
     let wallet = Wallet::from_private_key(deployer_key)?;
-    let token_op = TokenOp::Deploy { name: name.to_string(), symbol: symbol.to_string(), decimals, supply, max_supply: 0 };
+    let token_op = TokenOp::Deploy {
+        name: name.to_string(),
+        symbol: symbol.to_string(),
+        decimals,
+        supply,
+        max_supply: 0,
+    };
     let txid = cli_create_token_tx(&mut bc, &wallet, token_op, fee)?;
     storage.save_blockchain(&bc)?;
     println!("Token deploy transaction submitted to mempool!");
@@ -1464,12 +1766,23 @@ fn cmd_token_deploy(name: &str, symbol: &str, decimals: u8, supply: u64, deploye
     Ok(())
 }
 
-fn cmd_token_transfer(contract: &str, to: &str, amount: u64, from_key: &str, gas: u64) -> anyhow::Result<()> {
+fn cmd_token_transfer(
+    contract: &str,
+    to: &str,
+    amount: u64,
+    from_key: &str,
+    gas: u64,
+) -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let mut bc = storage.load_blockchain()?
+    let mut bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
     let wallet = Wallet::from_private_key(from_key)?;
-    let token_op = TokenOp::Transfer { contract: contract.to_string(), to: to.to_string(), amount };
+    let token_op = TokenOp::Transfer {
+        contract: contract.to_string(),
+        to: to.to_string(),
+        amount,
+    };
     let txid = cli_create_token_tx(&mut bc, &wallet, token_op, gas)?;
     storage.save_blockchain(&bc)?;
     println!("Token transfer transaction submitted to mempool!");
@@ -1484,10 +1797,14 @@ fn cmd_token_transfer(contract: &str, to: &str, amount: u64, from_key: &str, gas
 
 fn cmd_token_burn(contract: &str, amount: u64, from_key: &str, gas: u64) -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let mut bc = storage.load_blockchain()?
+    let mut bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
     let wallet = Wallet::from_private_key(from_key)?;
-    let token_op = TokenOp::Burn { contract: contract.to_string(), amount };
+    let token_op = TokenOp::Burn {
+        contract: contract.to_string(),
+        amount,
+    };
     let txid = cli_create_token_tx(&mut bc, &wallet, token_op, gas)?;
     storage.save_blockchain(&bc)?;
     println!("Token burn transaction submitted to mempool!");
@@ -1501,7 +1818,8 @@ fn cmd_token_burn(contract: &str, amount: u64, from_key: &str, gas: u64) -> anyh
 
 fn cmd_token_balance(contract: &str, address: &str) -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let bc = storage.load_blockchain()?
+    let bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
     let balance = bc.token_balance(contract, address);
     println!("Token balance:");
@@ -1513,7 +1831,8 @@ fn cmd_token_balance(contract: &str, address: &str) -> anyhow::Result<()> {
 
 fn cmd_token_info(contract: &str) -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let bc = storage.load_blockchain()?
+    let bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
     let info = bc.token_info(contract)?;
     println!("{}", serde_json::to_string_pretty(&info)?);
@@ -1522,7 +1841,8 @@ fn cmd_token_info(contract: &str) -> anyhow::Result<()> {
 
 fn cmd_token_list() -> anyhow::Result<()> {
     let storage = Storage::open(&get_db_path())?;
-    let bc = storage.load_blockchain()?
+    let bc = storage
+        .load_blockchain()?
         .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
     let tokens = bc.list_tokens();
     if tokens.is_empty() {
@@ -1531,7 +1851,8 @@ fn cmd_token_list() -> anyhow::Result<()> {
     }
     println!("Deployed tokens ({}):", tokens.len());
     for token in &tokens {
-        println!("  [{}] {} ({}) — supply: {}",
+        println!(
+            "  [{}] {} ({}) — supply: {}",
             token["contract_address"].as_str().unwrap_or(""),
             token["name"].as_str().unwrap_or(""),
             token["symbol"].as_str().unwrap_or(""),

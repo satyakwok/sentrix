@@ -1,7 +1,7 @@
 // block_producer.rs - Sentrix — Block creation (validator side)
 
-use crate::core::blockchain::{Blockchain, MAX_TX_PER_BLOCK};
 use crate::core::block::Block;
+use crate::core::blockchain::{Blockchain, MAX_TX_PER_BLOCK};
 use crate::core::transaction::Transaction;
 use crate::types::error::{SentrixError, SentrixResult};
 
@@ -11,7 +11,10 @@ impl Blockchain {
         let next_height = self.height() + 1;
 
         // Check authorization (Pioneer round-robin)
-        if !self.authority.is_authorized(validator_address, next_height)? {
+        if !self
+            .authority
+            .is_authorized(validator_address, next_height)?
+        {
             return Err(SentrixError::NotYourTurn);
         }
 
@@ -64,10 +67,10 @@ impl Blockchain {
 // ── Tests ─────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
-    use secp256k1::{Secp256k1, SecretKey, PublicKey};
-    use secp256k1::rand::rngs::OsRng;
-    use crate::core::transaction::{Transaction, MIN_TX_FEE};
     use crate::core::blockchain::{Blockchain, CHAIN_ID};
+    use crate::core::transaction::{MIN_TX_FEE, Transaction};
+    use secp256k1::rand::rngs::OsRng;
+    use secp256k1::{PublicKey, Secp256k1, SecretKey};
 
     fn make_keypair() -> (SecretKey, PublicKey) {
         let secp = Secp256k1::new();
@@ -80,7 +83,8 @@ mod tests {
 
     fn setup() -> Blockchain {
         let mut bc = Blockchain::new("admin".to_string());
-        bc.authority.add_validator_unchecked("v1".to_string(), "V1".to_string(), "pk1".to_string());
+        bc.authority
+            .add_validator_unchecked("v1".to_string(), "V1".to_string(), "pk1".to_string());
         bc
     }
 
@@ -94,14 +98,27 @@ mod tests {
         let sender = derive_addr(&pk);
         bc.accounts.credit(&sender, 1_000_000_000).unwrap();
         let tx = Transaction::new(
-            sender, RECV.to_string(), 100_000, MIN_TX_FEE, 0, String::new(), CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            sender,
+            RECV.to_string(),
+            100_000,
+            MIN_TX_FEE,
+            0,
+            String::new(),
+            CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         bc.add_to_mempool(tx).unwrap();
         assert_eq!(bc.mempool_size(), 1);
 
         // create_block should NOT remove the tx from mempool
         let _block = bc.create_block("v1").unwrap();
-        assert_eq!(bc.mempool_size(), 1, "mempool must not be drained by create_block");
+        assert_eq!(
+            bc.mempool_size(),
+            1,
+            "mempool must not be drained by create_block"
+        );
     }
 
     // Transactions are removed from mempool only after successful add_block
@@ -112,8 +129,17 @@ mod tests {
         let sender = derive_addr(&pk);
         bc.accounts.credit(&sender, 1_000_000_000).unwrap();
         let tx = Transaction::new(
-            sender, RECV.to_string(), 100_000, MIN_TX_FEE, 0, String::new(), CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            sender,
+            RECV.to_string(),
+            100_000,
+            MIN_TX_FEE,
+            0,
+            String::new(),
+            CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         bc.add_to_mempool(tx).unwrap();
 
         let block = bc.create_block("v1").unwrap();

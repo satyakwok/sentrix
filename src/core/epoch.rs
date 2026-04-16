@@ -3,9 +3,9 @@
 // Epoch length: 28,800 blocks (~24 hours at 3s).
 // At each epoch boundary: recalculate active set, process unbonding, distribute rewards.
 
-use serde::{Deserialize, Serialize};
-use crate::types::error::SentrixResult;
 use crate::core::staking::StakeRegistry;
+use crate::types::error::SentrixResult;
+use serde::{Deserialize, Serialize};
 
 pub const EPOCH_LENGTH: u64 = 28_800; // blocks per epoch
 
@@ -151,7 +151,12 @@ impl EpochManager {
     }
 
     /// Get the proposer for a given height+round from the current epoch's validator set
-    pub fn get_proposer(&self, stake_registry: &StakeRegistry, height: u64, round: u32) -> Option<String> {
+    pub fn get_proposer(
+        &self,
+        stake_registry: &StakeRegistry,
+        height: u64,
+        round: u32,
+    ) -> Option<String> {
         if self.current_epoch.validator_set.is_empty() {
             return None;
         }
@@ -160,7 +165,9 @@ impl EpochManager {
 
     /// Is this validator in the current epoch's active set?
     pub fn is_current_validator(&self, address: &str) -> bool {
-        self.current_epoch.validator_set.contains(&address.to_string())
+        self.current_epoch
+            .validator_set
+            .contains(&address.to_string())
     }
 
     /// Get epoch info for a past epoch number
@@ -186,7 +193,7 @@ impl EpochManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::staking::{StakeRegistry, MIN_SELF_STAKE};
+    use crate::core::staking::{MIN_SELF_STAKE, StakeRegistry};
 
     fn setup_registry(count: usize) -> StakeRegistry {
         let mut reg = StakeRegistry::new();
@@ -377,7 +384,11 @@ mod tests {
         em.transition(&mut reg, EPOCH_LENGTH - 1).unwrap();
 
         // Jailed validator should be gone from new set
-        assert!(!em.current_epoch.validator_set.contains(&"0xval000".to_string()));
+        assert!(
+            !em.current_epoch
+                .validator_set
+                .contains(&"0xval000".to_string())
+        );
         assert_ne!(em.current_epoch.validator_set, initial_set);
     }
 }

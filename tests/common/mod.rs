@@ -1,7 +1,7 @@
 // tests/common/mod.rs — Shared helpers for Sentrix integration tests
 #![allow(dead_code, clippy::expect_used, clippy::unwrap_used)]
 
-use sentrix::core::blockchain::{Blockchain, CHAIN_ID, TOTAL_PREMINE, BLOCK_REWARD};
+use sentrix::core::blockchain::{BLOCK_REWARD, Blockchain, CHAIN_ID, TOTAL_PREMINE};
 use sentrix::core::transaction::Transaction;
 use sentrix::wallet::wallet::Wallet;
 
@@ -18,14 +18,21 @@ pub fn setup_single_validator() -> (Blockchain, Wallet) {
     let mut bc = Blockchain::new(ADMIN.to_string());
     let val = Wallet::generate();
     bc.authority
-        .add_validator(ADMIN, val.address.clone(), "Test Validator".to_string(), val.public_key.clone())
+        .add_validator(
+            ADMIN,
+            val.address.clone(),
+            "Test Validator".to_string(),
+            val.public_key.clone(),
+        )
         .expect("add_validator failed");
     (bc, val)
 }
 
 /// Mine one empty block (coinbase only, no user transactions).
 pub fn mine_empty_block(bc: &mut Blockchain, validator_addr: &str) {
-    let block = bc.create_block(validator_addr).expect("create_block failed");
+    let block = bc
+        .create_block(validator_addr)
+        .expect("create_block failed");
     bc.add_block(block).expect("add_block failed");
 }
 
@@ -69,6 +76,8 @@ pub fn expected_total_minted(height: u64) -> u64 {
 /// Fund a fresh wallet with `amount` sentri and return the wallet.
 pub fn funded_wallet(bc: &mut Blockchain, amount: u64) -> Wallet {
     let w = Wallet::generate();
-    bc.accounts.credit(&w.address, amount).expect("credit failed");
+    bc.accounts
+        .credit(&w.address, amount)
+        .expect("credit failed");
     w
 }

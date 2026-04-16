@@ -1,10 +1,10 @@
 // jsonrpc.rs - Sentrix — Ethereum-compatible JSON-RPC 2.0
 
-use axum::{extract::State, Json};
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use crate::api::routes::{SharedState, ApiKey};
+use crate::api::routes::{ApiKey, SharedState};
 use crate::core::transaction::Transaction;
+use axum::{Json, extract::State};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 // ── JSON-RPC types ───────────────────────────────────────
 #[derive(Debug, Deserialize)]
@@ -33,18 +33,32 @@ pub struct JsonRpcError {
 
 impl JsonRpcResponse {
     pub fn ok(id: Option<Value>, result: Value) -> Self {
-        Self { jsonrpc: "2.0".to_string(), result: Some(result), error: None, id }
+        Self {
+            jsonrpc: "2.0".to_string(),
+            result: Some(result),
+            error: None,
+            id,
+        }
     }
     pub fn err(id: Option<Value>, code: i32, message: &str) -> Self {
         Self {
-            jsonrpc: "2.0".to_string(), result: None,
-            error: Some(JsonRpcError { code, message: message.to_string() }), id,
+            jsonrpc: "2.0".to_string(),
+            result: None,
+            error: Some(JsonRpcError {
+                code,
+                message: message.to_string(),
+            }),
+            id,
         }
     }
 }
 
-fn to_hex(n: u64) -> String { format!("0x{:x}", n) }
-fn to_hex_u128(n: u128) -> String { format!("0x{:x}", n) }
+fn to_hex(n: u64) -> String {
+    format!("0x{:x}", n)
+}
+fn to_hex_u128(n: u128) -> String {
+    format!("0x{:x}", n)
+}
 
 // ── Main handler ─────────────────────────────────────────
 pub async fn jsonrpc_handler(
@@ -63,19 +77,13 @@ pub async fn jsonrpc_handler(
             let bc = state.read().await;
             Ok(json!(bc.chain_id.to_string()))
         }
-        "net_listening" => {
-            Ok(json!(true))
-        }
-        "web3_clientVersion" => {
-            Ok(json!(format!("Sentrix/{}/Rust", env!("CARGO_PKG_VERSION"))))
-        }
+        "net_listening" => Ok(json!(true)),
+        "web3_clientVersion" => Ok(json!(format!("Sentrix/{}/Rust", env!("CARGO_PKG_VERSION")))),
         "eth_blockNumber" => {
             let bc = state.read().await;
             Ok(json!(to_hex(bc.height())))
         }
-        "eth_gasPrice" => {
-            Ok(json!(to_hex(1_000_000_000)))
-        }
+        "eth_gasPrice" => Ok(json!(to_hex(1_000_000_000))),
         "eth_estimateGas" => {
             // Gas estimation — 21000 for transfers, higher for contract calls
             let call_obj = &params[0];
@@ -130,8 +138,11 @@ pub async fn jsonrpc_handler(
             }
         }
         "eth_getBlockByHash" => {
-            let hash = params[0].as_str().unwrap_or("")
-                .trim_start_matches("0x").to_string();
+            let hash = params[0]
+                .as_str()
+                .unwrap_or("")
+                .trim_start_matches("0x")
+                .to_string();
             let bc = state.read().await;
             match bc.get_block_by_hash(&hash) {
                 Some(block) => Ok(json!({
@@ -149,8 +160,11 @@ pub async fn jsonrpc_handler(
             }
         }
         "eth_getTransactionByHash" => {
-            let txid = params[0].as_str().unwrap_or("")
-                .trim_start_matches("0x").to_string();
+            let txid = params[0]
+                .as_str()
+                .unwrap_or("")
+                .trim_start_matches("0x")
+                .to_string();
             let bc = state.read().await;
             match bc.get_transaction(&txid) {
                 Some(tx_data) => Ok(tx_data),
@@ -158,8 +172,11 @@ pub async fn jsonrpc_handler(
             }
         }
         "eth_getTransactionReceipt" => {
-            let txid = params[0].as_str().unwrap_or("")
-                .trim_start_matches("0x").to_string();
+            let txid = params[0]
+                .as_str()
+                .unwrap_or("")
+                .trim_start_matches("0x")
+                .to_string();
             let bc = state.read().await;
             match bc.get_transaction(&txid) {
                 Some(tx_data) => {
@@ -184,8 +201,13 @@ pub async fn jsonrpc_handler(
             // Client is responsible for signing the transaction locally before sending.
             let tx: Transaction = match serde_json::from_value(params[0].clone()) {
                 Ok(t) => t,
-                Err(e) => return Json(JsonRpcResponse::err(id, -32602,
-                    &format!("invalid transaction object: {}", e))),
+                Err(e) => {
+                    return Json(JsonRpcResponse::err(
+                        id,
+                        -32602,
+                        &format!("invalid transaction object: {}", e),
+                    ));
+                }
             };
             let txid = tx.txid.clone();
             let mut bc = state.write().await;
@@ -219,8 +241,13 @@ pub async fn jsonrpc_handler(
 
             let envelope: TxEnvelope = match TxEnvelope::decode_2718(&mut raw_bytes.as_slice()) {
                 Ok(env) => env,
-                Err(e) => return Json(JsonRpcResponse::err(id, -32602,
-                    &format!("RLP decode failed: {}", e))),
+                Err(e) => {
+                    return Json(JsonRpcResponse::err(
+                        id,
+                        -32602,
+                        &format!("RLP decode failed: {}", e),
+                    ));
+                }
             };
 
             // Recover sender address from signature
@@ -228,8 +255,13 @@ pub async fn jsonrpc_handler(
             use alloy_consensus::transaction::SignerRecoverable;
             let sender: alloy_primitives::Address = match envelope.recover_signer() {
                 Ok(addr) => addr,
-                Err(e) => return Json(JsonRpcResponse::err(id, -32602,
-                    &format!("signer recovery failed: {}", e))),
+                Err(e) => {
+                    return Json(JsonRpcResponse::err(
+                        id,
+                        -32602,
+                        &format!("signer recovery failed: {}", e),
+                    ));
+                }
             };
             let sender_str = format!("0x{}", hex::encode(sender.as_slice()));
 
@@ -247,13 +279,17 @@ pub async fn jsonrpc_handler(
             let amount_sentri = (value_wei / 10_000_000_000u128) as u64;
 
             // Build Sentrix Transaction. txid = keccak256 of raw bytes (Ethereum tx hash)
-            use sha3::{Keccak256, Digest as _};
+            use sha3::{Digest as _, Keccak256};
             let tx_hash = Keccak256::digest(&raw_bytes);
             let txid = hex::encode(tx_hash);
 
             let to_str = match to_kind {
-                alloy_primitives::TxKind::Call(addr) => format!("0x{}", hex::encode(addr.as_slice())),
-                alloy_primitives::TxKind::Create => crate::core::transaction::TOKEN_OP_ADDRESS.to_string(),
+                alloy_primitives::TxKind::Call(addr) => {
+                    format!("0x{}", hex::encode(addr.as_slice()))
+                }
+                alloy_primitives::TxKind::Create => {
+                    crate::core::transaction::TOKEN_OP_ADDRESS.to_string()
+                }
             };
 
             // Encode EVM call data as hex in the data field (will be decoded by block_executor)
@@ -273,7 +309,7 @@ pub async fn jsonrpc_handler(
                     .as_secs(),
                 chain_id,
                 signature: hex::encode(&raw_bytes), // store full raw tx for re-execution
-                public_key: String::new(), // not needed — sender derived from signature
+                public_key: String::new(),          // not needed — sender derived from signature
             };
 
             let mut bc = state.write().await;
@@ -291,19 +327,25 @@ pub async fn jsonrpc_handler(
                 return Json(JsonRpcResponse::err(id, -32000, "EVM not active yet"));
             }
             let call_obj = &params[0];
-            let from_str = call_obj["from"].as_str().unwrap_or("0x0000000000000000000000000000000000000000");
+            let from_str = call_obj["from"]
+                .as_str()
+                .unwrap_or("0x0000000000000000000000000000000000000000");
             let to_str = call_obj["to"].as_str().unwrap_or("");
-            let data_hex = call_obj["data"].as_str().unwrap_or("0x").trim_start_matches("0x");
+            let data_hex = call_obj["data"]
+                .as_str()
+                .unwrap_or("0x")
+                .trim_start_matches("0x");
             let data_bytes = hex::decode(data_hex).unwrap_or_default();
-            let gas_limit = call_obj["gas"].as_str()
+            let gas_limit = call_obj["gas"]
+                .as_str()
                 .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
                 .unwrap_or(30_000_000);
 
             let bc = state.read().await;
             use crate::core::evm::database::parse_sentrix_address;
 
-            let from_addr = parse_sentrix_address(from_str)
-                .unwrap_or(alloy_primitives::Address::ZERO);
+            let from_addr =
+                parse_sentrix_address(from_str).unwrap_or(alloy_primitives::Address::ZERO);
             let to_addr = parse_sentrix_address(to_str);
 
             let tx_kind = match to_addr {
@@ -332,7 +374,8 @@ pub async fn jsonrpc_handler(
             in_mem_db.insert_account_info(
                 from_addr,
                 revm::state::AccountInfo {
-                    balance: alloy_primitives::U256::from(sender_balance).saturating_mul(alloy_primitives::U256::from(10_000_000_000u64)),
+                    balance: alloy_primitives::U256::from(sender_balance)
+                        .saturating_mul(alloy_primitives::U256::from(10_000_000_000u64)),
                     nonce: sender_nonce,
                     code_hash: revm::primitives::KECCAK_EMPTY,
                     account_id: None,
@@ -346,15 +389,20 @@ pub async fn jsonrpc_handler(
             {
                 let code_hash_hex = hex::encode(target_account.code_hash);
                 if let Some(code_bytes) = bc.accounts.get_contract_code(&code_hash_hex) {
-                    let bytecode = revm::state::Bytecode::new_raw(alloy_primitives::Bytes::from(code_bytes.clone()));
+                    let bytecode = revm::state::Bytecode::new_raw(alloy_primitives::Bytes::from(
+                        code_bytes.clone(),
+                    ));
                     let code_hash = alloy_primitives::B256::from(target_account.code_hash);
-                    in_mem_db.insert_account_info(target, revm::state::AccountInfo {
-                        balance: alloy_primitives::U256::from(target_account.balance),
-                        nonce: target_account.nonce,
-                        code_hash,
-                        account_id: None,
-                        code: Some(bytecode),
-                    });
+                    in_mem_db.insert_account_info(
+                        target,
+                        revm::state::AccountInfo {
+                            balance: alloy_primitives::U256::from(target_account.balance),
+                            nonce: target_account.nonce,
+                            code_hash,
+                            account_id: None,
+                            code: Some(bytecode),
+                        },
+                    );
                 }
             }
             drop(bc);
@@ -371,12 +419,8 @@ pub async fn jsonrpc_handler(
                 }
             }
         }
-        "eth_syncing" => {
-            Ok(json!(false))
-        }
-        "eth_accounts" => {
-            Ok(json!([]))
-        }
+        "eth_syncing" => Ok(json!(false)),
+        "eth_accounts" => Ok(json!([])),
         "eth_getCode" => {
             // Return contract bytecode for an address
             let address = params[0].as_str().unwrap_or("").to_lowercase();
@@ -405,12 +449,12 @@ pub async fn jsonrpc_handler(
             if let Some(value) = bc.accounts.get_contract_storage(&address, slot_hex) {
                 Ok(json!(format!("0x{}", hex::encode(value))))
             } else {
-                Ok(json!("0x0000000000000000000000000000000000000000000000000000000000000000"))
+                Ok(json!(
+                    "0x0000000000000000000000000000000000000000000000000000000000000000"
+                ))
             }
         }
-        _ => {
-            Err((-32601, "Method not found"))
-        }
+        _ => Err((-32601, "Method not found")),
     };
 
     Json(match result {
@@ -438,15 +482,23 @@ pub async fn rpc_dispatcher(
     if value.is_array() {
         let requests: Vec<JsonRpcRequest> = match serde_json::from_value(value) {
             Ok(r) => r,
-            Err(_) => return Json(JsonRpcResponse::err(None, -32600, "Invalid Request")).into_response(),
+            Err(_) => {
+                return Json(JsonRpcResponse::err(None, -32600, "Invalid Request")).into_response();
+            }
         };
 
         // Reject oversized batches before deserializing individual requests
         if requests.len() > MAX_BATCH_SIZE {
             return Json(JsonRpcResponse::err(
-                None, -32600,
-                &format!("batch too large: max {} requests, got {}", MAX_BATCH_SIZE, requests.len()),
-            )).into_response();
+                None,
+                -32600,
+                &format!(
+                    "batch too large: max {} requests, got {}",
+                    MAX_BATCH_SIZE,
+                    requests.len()
+                ),
+            ))
+            .into_response();
         }
 
         let mut responses = Vec::new();
@@ -458,9 +510,13 @@ pub async fn rpc_dispatcher(
     } else {
         let req: JsonRpcRequest = match serde_json::from_value(value) {
             Ok(r) => r,
-            Err(_) => return Json(JsonRpcResponse::err(None, -32600, "Invalid Request")).into_response(),
+            Err(_) => {
+                return Json(JsonRpcResponse::err(None, -32600, "Invalid Request")).into_response();
+            }
         };
-        jsonrpc_handler(State(state), Json(req)).await.into_response()
+        jsonrpc_handler(State(state), Json(req))
+            .await
+            .into_response()
     }
 }
 
@@ -476,9 +532,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_m03_batch_too_large_rejected() {
+        use crate::core::blockchain::Blockchain;
         use std::sync::Arc;
         use tokio::sync::RwLock;
-        use crate::core::blockchain::Blockchain;
 
         let bc = Blockchain::new("admin".to_string());
         let state: crate::api::routes::SharedState = Arc::new(RwLock::new(bc));
@@ -495,15 +551,17 @@ mod tests {
         }
         let body = axum::body::Bytes::from(serde_json::to_vec(&requests).unwrap());
 
-        let response = rpc_dispatcher(
-            ApiKey,
-            axum::extract::State(state),
-            body,
-        ).await;
+        let response = rpc_dispatcher(ApiKey, axum::extract::State(state), body).await;
 
         // Response should be an error about batch too large
-        let body_bytes = axum::body::to_bytes(response.into_body(), 10_000).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), 10_000)
+            .await
+            .unwrap();
         let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
-        assert!(body_str.contains("batch too large"), "Expected batch too large error, got: {}", body_str);
+        assert!(
+            body_str.contains("batch too large"),
+            "Expected batch too large error, got: {}",
+            body_str
+        );
     }
 }

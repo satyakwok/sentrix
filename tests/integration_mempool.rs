@@ -28,9 +28,14 @@ fn test_per_sender_limit_enforced() {
     // Submit MAX_MEMPOOL_PER_SENDER TXs — all must succeed
     for n in 0..MAX_MEMPOOL_PER_SENDER as u64 {
         let tx = common::make_tx_nonce(&sender, common::RECV, MIN_AMOUNT, MIN_TX_FEE, n);
-        bc.add_to_mempool(tx).expect("TX should be accepted within per-sender limit");
+        bc.add_to_mempool(tx)
+            .expect("TX should be accepted within per-sender limit");
     }
-    assert_eq!(bc.mempool_size(), MAX_MEMPOOL_PER_SENDER, "mempool should be at per-sender cap");
+    assert_eq!(
+        bc.mempool_size(),
+        MAX_MEMPOOL_PER_SENDER,
+        "mempool should be at per-sender cap"
+    );
 
     // One more TX from the same sender must be rejected
     let excess_tx = common::make_tx_nonce(
@@ -41,11 +46,15 @@ fn test_per_sender_limit_enforced() {
         MAX_MEMPOOL_PER_SENDER as u64,
     );
     let result = bc.add_to_mempool(excess_tx);
-    assert!(result.is_err(), "TX beyond per-sender limit must be rejected");
+    assert!(
+        result.is_err(),
+        "TX beyond per-sender limit must be rejected"
+    );
     let err_str = result.unwrap_err().to_string();
     assert!(
         err_str.contains("too many pending") || err_str.contains("sender"),
-        "error should mention sender limit: {}", err_str
+        "error should mention sender limit: {}",
+        err_str
     );
 }
 
@@ -69,7 +78,10 @@ fn test_global_mempool_limit_enforced() {
 
     // Fill mempool to MAX_MEMPOOL_SIZE using first 100 wallets × 100 TXs each
     let mut total_submitted = 0usize;
-    'outer: for wallet in wallets.iter().take(MAX_MEMPOOL_SIZE / MAX_MEMPOOL_PER_SENDER) {
+    'outer: for wallet in wallets
+        .iter()
+        .take(MAX_MEMPOOL_SIZE / MAX_MEMPOOL_PER_SENDER)
+    {
         for n in 0..MAX_MEMPOOL_PER_SENDER as u64 {
             if total_submitted >= MAX_MEMPOOL_SIZE {
                 break 'outer;
@@ -79,17 +91,23 @@ fn test_global_mempool_limit_enforced() {
             total_submitted += 1;
         }
     }
-    assert_eq!(bc.mempool_size(), MAX_MEMPOOL_SIZE, "mempool should be full");
+    assert_eq!(
+        bc.mempool_size(),
+        MAX_MEMPOOL_SIZE,
+        "mempool should be full"
+    );
 
     // One more TX from the 101st wallet must be rejected
     let overflow_wallet = &wallets[num_wallets - 1];
-    let overflow_tx = common::make_tx_nonce(overflow_wallet, common::RECV, MIN_AMOUNT, MIN_TX_FEE, 0);
+    let overflow_tx =
+        common::make_tx_nonce(overflow_wallet, common::RECV, MIN_AMOUNT, MIN_TX_FEE, 0);
     let result = bc.add_to_mempool(overflow_tx);
     assert!(result.is_err(), "TX into full mempool must be rejected");
     let err_str = result.unwrap_err().to_string();
     assert!(
         err_str.contains("mempool full") || err_str.contains("full"),
-        "error should mention full mempool: {}", err_str
+        "error should mention full mempool: {}",
+        err_str
     );
 }
 
@@ -108,7 +126,11 @@ fn test_mempool_clears_after_block() {
 
     common::mine_block_with_mempool(&mut bc, &val.address);
 
-    assert_eq!(bc.mempool_size(), 0, "all mined TXs should be removed from mempool");
+    assert_eq!(
+        bc.mempool_size(),
+        0,
+        "all mined TXs should be removed from mempool"
+    );
 }
 
 /// TTL: a TX with an ancient timestamp (epoch 0) must be rejected immediately.
@@ -124,11 +146,15 @@ fn test_ttl_stale_timestamp_rejected() {
     tx.timestamp = 0; // epoch zero — definitely older than MEMPOOL_MAX_AGE_SECS (3600s)
 
     let result = bc.add_to_mempool(tx);
-    assert!(result.is_err(), "TX with ancient timestamp must be rejected");
+    assert!(
+        result.is_err(),
+        "TX with ancient timestamp must be rejected"
+    );
     let err_str = result.unwrap_err().to_string();
     assert!(
         err_str.contains("old") || err_str.contains("age") || err_str.contains("timestamp"),
-        "error should mention stale TX: {}", err_str
+        "error should mention stale TX: {}",
+        err_str
     );
 }
 
@@ -159,7 +185,13 @@ fn test_fee_priority_both_accepted() {
     let high_fee_sender = common::funded_wallet(&mut bc, 500_000_000);
 
     let low_tx = common::make_tx(&bc, &low_fee_sender, common::RECV, MIN_AMOUNT, MIN_TX_FEE);
-    let high_tx = common::make_tx(&bc, &high_fee_sender, common::RECV, MIN_AMOUNT, MIN_TX_FEE * 10);
+    let high_tx = common::make_tx(
+        &bc,
+        &high_fee_sender,
+        common::RECV,
+        MIN_AMOUNT,
+        MIN_TX_FEE * 10,
+    );
 
     bc.add_to_mempool(low_tx).expect("low fee tx accepted");
     bc.add_to_mempool(high_tx).expect("high fee tx accepted");
@@ -183,5 +215,8 @@ fn test_mempool_pending_spend_tracked() {
     // TX3 must fail — sender doesn't have enough after tx1+tx2 pending
     let tx3 = common::make_tx_nonce(&sender, common::RECV, MIN_AMOUNT, MIN_TX_FEE, 2);
     let result = bc.add_to_mempool(tx3);
-    assert!(result.is_err(), "TX3 must be rejected due to insufficient balance after pending spend");
+    assert!(
+        result.is_err(),
+        "TX3 must be rejected due to insufficient balance after pending spend"
+    );
 }

@@ -1,9 +1,9 @@
 // authority.rs - Sentrix
 
+use crate::types::error::{SentrixError, SentrixResult};
+use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use secp256k1::PublicKey;
-use crate::types::error::{SentrixError, SentrixResult};
 
 // Minimum active validators for collusion resistance (PoA N/2+1 design)
 pub const MIN_ACTIVE_VALIDATORS: usize = 3;
@@ -85,10 +85,8 @@ impl AuthorityManager {
 
     // Get active validators sorted by address (deterministic order)
     pub fn active_validators(&self) -> Vec<&Validator> {
-        let mut active: Vec<&Validator> = self.validators
-            .values()
-            .filter(|v| v.is_active)
-            .collect();
+        let mut active: Vec<&Validator> =
+            self.validators.values().filter(|v| v.is_active).collect();
         active.sort_by(|a, b| a.address.cmp(&b.address));
         active
     }
@@ -118,40 +116,41 @@ impl AuthorityManager {
         public_key: String,
     ) -> SentrixResult<()> {
         if caller != self.admin_address {
-            return Err(SentrixError::UnauthorizedValidator(
-                format!("{} is not admin", caller)
-            ));
+            return Err(SentrixError::UnauthorizedValidator(format!(
+                "{} is not admin",
+                caller
+            )));
         }
         if self.validators.contains_key(&address) {
-            return Err(SentrixError::InvalidBlock(
-                format!("validator {} already exists", address)
-            ));
+            return Err(SentrixError::InvalidBlock(format!(
+                "validator {} already exists",
+                address
+            )));
         }
 
         // Validate address format before the expensive secp256k1 point check
         if !crate::core::blockchain::is_valid_sentrix_address(&address) {
-            return Err(SentrixError::InvalidTransaction(
-                format!("invalid validator address format: {}", address)
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "invalid validator address format: {}",
+                address
+            )));
         }
 
         // Verify public_key is a valid secp256k1 point that derives to the given address
-        let pk_bytes = hex::decode(&public_key)
-            .map_err(|_| SentrixError::InvalidTransaction(
-                "public_key: invalid hex encoding".to_string()
-            ))?;
-        let pk = PublicKey::from_slice(&pk_bytes)
-            .map_err(|_| SentrixError::InvalidTransaction(
-                "public_key: not a valid secp256k1 public key".to_string()
-            ))?;
+        let pk_bytes = hex::decode(&public_key).map_err(|_| {
+            SentrixError::InvalidTransaction("public_key: invalid hex encoding".to_string())
+        })?;
+        let pk = PublicKey::from_slice(&pk_bytes).map_err(|_| {
+            SentrixError::InvalidTransaction(
+                "public_key: not a valid secp256k1 public key".to_string(),
+            )
+        })?;
         let derived = crate::wallet::wallet::Wallet::derive_address(&pk);
         if derived != address {
-            return Err(SentrixError::InvalidTransaction(
-                format!(
-                    "public_key does not correspond to address — derived {}, expected {}",
-                    derived, address
-                )
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "public_key does not correspond to address — derived {}, expected {}",
+                derived, address
+            )));
         }
 
         self.validators.insert(
@@ -159,112 +158,164 @@ impl AuthorityManager {
             Validator::new(address.clone(), name.clone(), public_key),
         );
         // Log the privileged operation for the admin audit trail
-        tracing::warn!("ADMIN_OP: {} called add_validator for {} ('{}') at {}",
-            caller, address, name,
+        tracing::warn!(
+            "ADMIN_OP: {} called add_validator for {} ('{}') at {}",
+            caller,
+            address,
+            name,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default().as_secs()
+                .unwrap_or_default()
+                .as_secs()
         );
-        self.admin_log.push(AdminEvent::now("add_validator", caller, &address, &name));
+        self.admin_log
+            .push(AdminEvent::now("add_validator", caller, &address, &name));
         self.trim_admin_log();
         Ok(())
     }
 
     pub fn remove_validator(&mut self, caller: &str, address: &str) -> SentrixResult<()> {
         if caller != self.admin_address {
-            return Err(SentrixError::UnauthorizedValidator(
-                format!("{} is not admin", caller)
-            ));
+            return Err(SentrixError::UnauthorizedValidator(format!(
+                "{} is not admin",
+                caller
+            )));
         }
         if address == self.admin_address {
             return Err(SentrixError::InvalidBlock(
-                "admin cannot remove itself".to_string()
+                "admin cannot remove itself".to_string(),
             ));
         }
         // Ensure at least MIN_ACTIVE_VALIDATORS remain after removal to maintain BFT quorum
-        let active_after = self.active_validators().iter()
+        let active_after = self
+            .active_validators()
+            .iter()
             .filter(|v| v.address != address)
             .count();
         if active_after < MIN_ACTIVE_VALIDATORS {
-            return Err(SentrixError::InvalidBlock(
-                format!("cannot remove: at least {} active validators required", MIN_ACTIVE_VALIDATORS)
-            ));
+            return Err(SentrixError::InvalidBlock(format!(
+                "cannot remove: at least {} active validators required",
+                MIN_ACTIVE_VALIDATORS
+            )));
         }
-        let name = self.validators.get(address)
+        let name = self
+            .validators
+            .get(address)
             .map(|v| v.name.clone())
             .unwrap_or_default();
-        self.validators.remove(address)
+        self.validators
+            .remove(address)
             .ok_or_else(|| SentrixError::NotFound(format!("validator {}", address)))?;
         // Log the privileged operation for the admin audit trail
-        tracing::warn!("ADMIN_OP: {} called remove_validator for {} ('{}') at {}",
-            caller, address, name,
+        tracing::warn!(
+            "ADMIN_OP: {} called remove_validator for {} ('{}') at {}",
+            caller,
+            address,
+            name,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default().as_secs()
+                .unwrap_or_default()
+                .as_secs()
         );
-        self.admin_log.push(AdminEvent::now("remove_validator", caller, address, &name));
+        self.admin_log
+            .push(AdminEvent::now("remove_validator", caller, address, &name));
         self.trim_admin_log();
         Ok(())
     }
 
     pub fn toggle_validator(&mut self, caller: &str, address: &str) -> SentrixResult<bool> {
         if caller != self.admin_address {
-            return Err(SentrixError::UnauthorizedValidator(
-                format!("{} is not admin", caller)
-            ));
+            return Err(SentrixError::UnauthorizedValidator(format!(
+                "{} is not admin",
+                caller
+            )));
         }
-        let validator = self.validators.get(address)
+        let validator = self
+            .validators
+            .get(address)
             .ok_or_else(|| SentrixError::NotFound(format!("validator {}", address)))?;
 
         // Prevent deactivating below MIN_ACTIVE_VALIDATORS to maintain BFT quorum
         if validator.is_active {
-            let active_after = self.active_validators().iter()
+            let active_after = self
+                .active_validators()
+                .iter()
                 .filter(|v| v.address != address)
                 .count();
             if active_after < MIN_ACTIVE_VALIDATORS {
-                return Err(SentrixError::InvalidBlock(
-                    format!("cannot deactivate: at least {} active validators required", MIN_ACTIVE_VALIDATORS)
-                ));
+                return Err(SentrixError::InvalidBlock(format!(
+                    "cannot deactivate: at least {} active validators required",
+                    MIN_ACTIVE_VALIDATORS
+                )));
             }
         }
 
-        let validator = self.validators.get_mut(address)
+        let validator = self
+            .validators
+            .get_mut(address)
             .ok_or_else(|| SentrixError::NotFound(format!("validator {}", address)))?;
         validator.is_active = !validator.is_active;
         let new_state = validator.is_active;
         let name = validator.name.clone();
-        let op = if new_state { "activate_validator" } else { "deactivate_validator" };
+        let op = if new_state {
+            "activate_validator"
+        } else {
+            "deactivate_validator"
+        };
         // Log the privileged operation for the admin audit trail
-        tracing::warn!("ADMIN_OP: {} called {} for {} ('{}') at {}",
-            caller, op, address, name,
+        tracing::warn!(
+            "ADMIN_OP: {} called {} for {} ('{}') at {}",
+            caller,
+            op,
+            address,
+            name,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default().as_secs()
+                .unwrap_or_default()
+                .as_secs()
         );
-        self.admin_log.push(AdminEvent::now(op, caller, address, &name));
+        self.admin_log
+            .push(AdminEvent::now(op, caller, address, &name));
         self.trim_admin_log();
         Ok(new_state)
     }
 
-    pub fn rename_validator(&mut self, caller: &str, address: &str, new_name: String) -> SentrixResult<()> {
+    pub fn rename_validator(
+        &mut self,
+        caller: &str,
+        address: &str,
+        new_name: String,
+    ) -> SentrixResult<()> {
         if caller != self.admin_address {
-            return Err(SentrixError::UnauthorizedValidator(
-                format!("{} is not admin", caller)
-            ));
+            return Err(SentrixError::UnauthorizedValidator(format!(
+                "{} is not admin",
+                caller
+            )));
         }
-        let validator = self.validators.get_mut(address)
+        let validator = self
+            .validators
+            .get_mut(address)
             .ok_or_else(|| SentrixError::NotFound(format!("validator {}", address)))?;
         let old_name = validator.name.clone();
         validator.name = new_name.clone();
         // Log the privileged operation; target_name records the new name for auditability
         let log_name = format!("{} -> {}", old_name, new_name);
-        tracing::warn!("ADMIN_OP: {} called rename_validator for {} ('{}') at {}",
-            caller, address, log_name,
+        tracing::warn!(
+            "ADMIN_OP: {} called rename_validator for {} ('{}') at {}",
+            caller,
+            address,
+            log_name,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default().as_secs()
+                .unwrap_or_default()
+                .as_secs()
         );
-        self.admin_log.push(AdminEvent::now("rename_validator", caller, address, &log_name));
+        self.admin_log.push(AdminEvent::now(
+            "rename_validator",
+            caller,
+            address,
+            &log_name,
+        ));
         self.trim_admin_log();
         Ok(())
     }
@@ -272,14 +323,17 @@ impl AuthorityManager {
     // Minimum validators needed to collude and control the chain (N/2+1 of active set)
     pub fn collusion_risk(&self) -> usize {
         let n = self.active_count();
-        if n == 0 { return 0; }
+        if n == 0 {
+            return 0;
+        }
         n / 2 + 1
     }
 
     // Trim oldest entries when admin_log reaches its cap to stay bounded
     fn trim_admin_log(&mut self) {
         if self.admin_log.len() > MAX_ADMIN_LOG_SIZE {
-            self.admin_log.drain(..self.admin_log.len() - MAX_ADMIN_LOG_SIZE);
+            self.admin_log
+                .drain(..self.admin_log.len() - MAX_ADMIN_LOG_SIZE);
         }
     }
 
@@ -302,7 +356,8 @@ impl AuthorityManager {
     /// Use this in unit tests where you want to control the address string directly.
     #[cfg(test)]
     pub fn add_validator_unchecked(&mut self, address: String, name: String, public_key: String) {
-        self.validators.insert(address.clone(), Validator::new(address, name, public_key));
+        self.validators
+            .insert(address.clone(), Validator::new(address, name, public_key));
     }
 }
 
@@ -339,10 +394,14 @@ mod tests {
         let (addr2, pk2) = gen_validator_keypair();
         let (addr3, pk3) = gen_validator_keypair();
         let (addr4, pk4) = gen_validator_keypair();
-        mgr.add_validator("admin", addr1, "Validator 1".to_string(), pk1).unwrap();
-        mgr.add_validator("admin", addr2, "Validator 2".to_string(), pk2).unwrap();
-        mgr.add_validator("admin", addr3, "Validator 3".to_string(), pk3).unwrap();
-        mgr.add_validator("admin", addr4, "Validator 4".to_string(), pk4).unwrap();
+        mgr.add_validator("admin", addr1, "Validator 1".to_string(), pk1)
+            .unwrap();
+        mgr.add_validator("admin", addr2, "Validator 2".to_string(), pk2)
+            .unwrap();
+        mgr.add_validator("admin", addr3, "Validator 3".to_string(), pk3)
+            .unwrap();
+        mgr.add_validator("admin", addr4, "Validator 4".to_string(), pk4)
+            .unwrap();
         mgr
     }
 
@@ -416,14 +475,19 @@ mod tests {
     fn test_h03_toggle_cannot_deactivate_last_validator() {
         let mut mgr = AuthorityManager::new("admin".to_string());
         let (addr1, pk1) = gen_validator_keypair();
-        mgr.add_validator("admin", addr1.clone(), "V1".to_string(), pk1).unwrap();
+        mgr.add_validator("admin", addr1.clone(), "V1".to_string(), pk1)
+            .unwrap();
         assert_eq!(mgr.active_count(), 1);
 
         // Trying to deactivate below MIN_ACTIVE_VALIDATORS should fail
         let result = mgr.toggle_validator("admin", &addr1);
         assert!(result.is_err());
         let err_str = result.unwrap_err().to_string();
-        assert!(err_str.contains("at least 3"), "Expected min validator error, got: {}", err_str);
+        assert!(
+            err_str.contains("at least 3"),
+            "Expected min validator error, got: {}",
+            err_str
+        );
 
         // Validator should still be active
         assert_eq!(mgr.active_count(), 1);
@@ -435,7 +499,8 @@ mod tests {
         let addr = mgr.active_validators()[0].address.clone();
         let blocks_before = mgr.validators[&addr].blocks_produced;
 
-        mgr.rename_validator("admin", &addr, "New Name".to_string()).unwrap();
+        mgr.rename_validator("admin", &addr, "New Name".to_string())
+            .unwrap();
         assert_eq!(mgr.validators[&addr].name, "New Name");
         assert_eq!(mgr.validators[&addr].blocks_produced, blocks_before); // counter preserved
     }
@@ -456,7 +521,8 @@ mod tests {
         assert_eq!(mgr.admin_log.len(), 0);
 
         let (addr, pk) = gen_validator_keypair();
-        mgr.add_validator("admin", addr.clone(), "Test Val".to_string(), pk).unwrap();
+        mgr.add_validator("admin", addr.clone(), "Test Val".to_string(), pk)
+            .unwrap();
 
         assert_eq!(mgr.admin_log.len(), 1);
         let event = &mgr.admin_log[0];
@@ -512,7 +578,8 @@ mod tests {
         let old_name = mgr.validators[&addr].name.clone();
         let log_len_before = mgr.admin_log.len();
 
-        mgr.rename_validator("admin", &addr, "Brand New Name".to_string()).unwrap();
+        mgr.rename_validator("admin", &addr, "Brand New Name".to_string())
+            .unwrap();
 
         assert_eq!(mgr.admin_log.len(), log_len_before + 1);
         let event = mgr.admin_log.last().unwrap();
@@ -533,7 +600,11 @@ mod tests {
         let (addr, pk) = gen_validator_keypair();
         let result = mgr.add_validator("hacker", addr, "Evil".to_string(), pk);
         assert!(result.is_err());
-        assert_eq!(mgr.admin_log.len(), log_len_before, "failed op must not log");
+        assert_eq!(
+            mgr.admin_log.len(),
+            log_len_before,
+            "failed op must not log"
+        );
     }
 
     #[test]
@@ -541,7 +612,8 @@ mod tests {
         // admin_log must survive serialize/deserialize (used in blockchain state persistence)
         let mut mgr = AuthorityManager::new("admin".to_string());
         let (addr, pk) = gen_validator_keypair();
-        mgr.add_validator("admin", addr, "Val".to_string(), pk).unwrap();
+        mgr.add_validator("admin", addr, "Val".to_string(), pk)
+            .unwrap();
 
         let json = serde_json::to_string(&mgr).unwrap();
         let loaded: AuthorityManager = serde_json::from_str(&json).unwrap();
@@ -559,7 +631,11 @@ mod tests {
         let result = mgr.remove_validator("admin", &addr);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("at least 3"), "Expected min 3 error, got: {}", err);
+        assert!(
+            err.contains("at least 3"),
+            "Expected min 3 error, got: {}",
+            err
+        );
     }
 
     #[test]
@@ -570,7 +646,11 @@ mod tests {
         let result = mgr.toggle_validator("admin", &addr);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("at least 3"), "Expected min 3 error, got: {}", err);
+        assert!(
+            err.contains("at least 3"),
+            "Expected min 3 error, got: {}",
+            err
+        );
     }
 
     #[test]
@@ -590,12 +670,18 @@ mod tests {
         let mut mgr = AuthorityManager::new("admin".to_string());
         let (_, pk) = gen_validator_keypair();
         // Use syntactically invalid address (no 0x prefix)
-        let result = mgr.add_validator("admin", "not_a_valid_address".to_string(), "Bad Val".to_string(), pk);
+        let result = mgr.add_validator(
+            "admin",
+            "not_a_valid_address".to_string(),
+            "Bad Val".to_string(),
+            pk,
+        );
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("invalid") || err.contains("address"),
-            "Expected address format error, got: {}", err
+            "Expected address format error, got: {}",
+            err
         );
     }
 
@@ -604,7 +690,10 @@ mod tests {
         let mut mgr = AuthorityManager::new("admin".to_string());
         let (addr, pk) = gen_validator_keypair();
         // Real derived address should pass both format check and H-02 crypto check
-        assert!(mgr.add_validator("admin", addr, "Valid Val".to_string(), pk).is_ok());
+        assert!(
+            mgr.add_validator("admin", addr, "Valid Val".to_string(), pk)
+                .is_ok()
+        );
     }
 
     // ── V5-11: Bounded admin_log ────────────────────────────
@@ -613,16 +702,20 @@ mod tests {
     fn test_v511_admin_log_bounded_at_max_size() {
         let mut mgr = AuthorityManager::new("admin".to_string());
         let (addr, pk) = gen_validator_keypair();
-        mgr.add_validator("admin", addr.clone(), "Val".to_string(), pk).unwrap();
+        mgr.add_validator("admin", addr.clone(), "Val".to_string(), pk)
+            .unwrap();
 
         // Rename MAX_ADMIN_LOG_SIZE + 10 times to overflow
         for i in 0..MAX_ADMIN_LOG_SIZE + 10 {
-            mgr.rename_validator("admin", &addr, format!("Name {}", i)).unwrap();
+            mgr.rename_validator("admin", &addr, format!("Name {}", i))
+                .unwrap();
         }
 
         assert!(
             mgr.admin_log.len() <= MAX_ADMIN_LOG_SIZE,
-            "admin_log exceeded MAX: {} > {}", mgr.admin_log.len(), MAX_ADMIN_LOG_SIZE
+            "admin_log exceeded MAX: {} > {}",
+            mgr.admin_log.len(),
+            MAX_ADMIN_LOG_SIZE
         );
     }
 
@@ -648,11 +741,13 @@ mod tests {
     fn test_v511_oldest_entries_trimmed_not_newest() {
         let mut mgr = AuthorityManager::new("admin".to_string());
         let (addr, pk) = gen_validator_keypair();
-        mgr.add_validator("admin", addr.clone(), "Val".to_string(), pk).unwrap();
+        mgr.add_validator("admin", addr.clone(), "Val".to_string(), pk)
+            .unwrap();
 
         // Fill to MAX_ADMIN_LOG_SIZE + 5 renames
         for i in 0..MAX_ADMIN_LOG_SIZE + 5 {
-            mgr.rename_validator("admin", &addr, format!("Name {}", i)).unwrap();
+            mgr.rename_validator("admin", &addr, format!("Name {}", i))
+                .unwrap();
         }
 
         // Newest entry must still be present (oldest were trimmed)
@@ -678,6 +773,10 @@ mod tests {
         let result = mgr.toggle_validator("admin", &addr2);
         assert!(result.is_err());
         let err_str = result.unwrap_err().to_string();
-        assert!(err_str.contains("at least 3"), "Expected min 3 error, got: {}", err_str);
+        assert!(
+            err_str.contains("at least 3"),
+            "Expected min 3 error, got: {}",
+            err_str
+        );
     }
 }

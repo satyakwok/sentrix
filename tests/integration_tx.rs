@@ -42,11 +42,19 @@ fn test_tx_lifecycle_full() {
         "sender balance incorrect"
     );
     // Receiver gains exactly the amount (not fee)
-    assert_eq!(recv_after, recv_before + SEND_AMOUNT, "receiver balance incorrect");
+    assert_eq!(
+        recv_after,
+        recv_before + SEND_AMOUNT,
+        "receiver balance incorrect"
+    );
 
     // Burned = ceil(MIN_TX_FEE / 2)
     let expected_burn = MIN_TX_FEE.div_ceil(2);
-    assert_eq!(burned_after - burned_before, expected_burn, "burned amount incorrect");
+    assert_eq!(
+        burned_after - burned_before,
+        expected_burn,
+        "burned amount incorrect"
+    );
 
     // TX is in the block
     let tx_result = bc.get_transaction(&txid);
@@ -69,7 +77,10 @@ fn test_double_spend_rejected() {
     // Nonce is now 1 on-chain; re-submitting nonce=0 must fail
     let stale_tx = common::make_tx_nonce(&sender, common::RECV, SEND_AMOUNT, MIN_TX_FEE, 0);
     let result = bc.add_to_mempool(stale_tx);
-    assert!(result.is_err(), "double-spend (stale nonce) must be rejected");
+    assert!(
+        result.is_err(),
+        "double-spend (stale nonce) must be rejected"
+    );
 }
 
 /// TX with insufficient balance must be rejected at mempool stage.
@@ -85,7 +96,8 @@ fn test_insufficient_balance_rejected_at_mempool() {
     let err_str = result.unwrap_err().to_string();
     assert!(
         err_str.contains("balance") || err_str.contains("InsufficientBalance"),
-        "error should mention balance: {}", err_str
+        "error should mention balance: {}",
+        err_str
     );
 }
 

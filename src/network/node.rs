@@ -8,18 +8,18 @@
 // The TCP listener/handler functions below are NOT called by main.rs.
 // Do NOT re-enable raw TCP P2P without adding encryption.
 
-use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::{RwLock, Mutex, mpsc};
-use std::sync::Arc;
-use std::collections::HashMap;
-use std::net::IpAddr;
-use std::time::{Duration, Instant};
-use serde::{Deserialize, Serialize};
 use crate::core::block::Block;
 use crate::core::blockchain::Blockchain;
 use crate::core::transaction::Transaction;
 use crate::types::error::{SentrixError, SentrixResult};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::net::IpAddr;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{Mutex, RwLock, mpsc};
 
 pub const DEFAULT_PORT: u16 = 30303;
 pub const MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024; // 10MB
@@ -35,15 +35,32 @@ pub type ConnectionCounts = Arc<Mutex<HashMap<IpAddr, (u32, Instant)>>>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
 pub enum Message {
-    Handshake { host: String, port: u16, height: u64, chain_id: u64 },
-    NewBlock { block: Block },
-    NewTransaction { transaction: Transaction },
-    GetBlocks { from_height: u64 },
-    BlocksResponse { blocks: Vec<Block> },
+    Handshake {
+        host: String,
+        port: u16,
+        height: u64,
+        chain_id: u64,
+    },
+    NewBlock {
+        block: Block,
+    },
+    NewTransaction {
+        transaction: Transaction,
+    },
+    GetBlocks {
+        from_height: u64,
+    },
+    BlocksResponse {
+        blocks: Vec<Block>,
+    },
     GetHeight,
-    HeightResponse { height: u64 },
+    HeightResponse {
+        height: u64,
+    },
     Ping,
-    Pong { height: u64 },
+    Pong {
+        height: u64,
+    },
 }
 
 // ── Peer info ────────────────────────────────────────────
@@ -72,7 +89,10 @@ pub enum NodeEvent {
     NewTransaction(Transaction),
     PeerConnected(String),
     PeerDisconnected(String),
-    SyncNeeded { peer_addr: String, peer_height: u64 },
+    SyncNeeded {
+        peer_addr: String,
+        peer_height: u64,
+    },
     /// BFT: received a proposal from the network
     BftProposal(crate::core::bft_messages::Proposal),
     /// BFT: received a prevote from the network
@@ -121,7 +141,9 @@ impl Node {
 
     pub async fn read_message(stream: &mut TcpStream) -> SentrixResult<Message> {
         let mut len_buf = [0u8; 4];
-        stream.read_exact(&mut len_buf).await
+        stream
+            .read_exact(&mut len_buf)
+            .await
             .map_err(|e| SentrixError::NetworkError(e.to_string()))?;
         let len = u32::from_be_bytes(len_buf) as usize;
 
@@ -130,7 +152,9 @@ impl Node {
         }
 
         let mut buf = vec![0u8; len];
-        stream.read_exact(&mut buf).await
+        stream
+            .read_exact(&mut buf)
+            .await
             .map_err(|e| SentrixError::NetworkError(e.to_string()))?;
 
         let msg: Message = serde_json::from_slice(&buf)?;
@@ -139,7 +163,9 @@ impl Node {
 
     pub async fn send_message(stream: &mut TcpStream, msg: &Message) -> SentrixResult<()> {
         let encoded = Self::encode_message(msg)?;
-        stream.write_all(&encoded).await
+        stream
+            .write_all(&encoded)
+            .await
             .map_err(|e| SentrixError::NetworkError(e.to_string()))?;
         Ok(())
     }
@@ -154,7 +180,8 @@ impl Node {
         event_tx: mpsc::Sender<NodeEvent>,
     ) -> SentrixResult<()> {
         let addr = format!("0.0.0.0:{}", port);
-        let listener = TcpListener::bind(&addr).await
+        let listener = TcpListener::bind(&addr)
+            .await
             .map_err(|e| SentrixError::NetworkError(e.to_string()))?;
 
         let connection_counts: ConnectionCounts = Arc::new(Mutex::new(HashMap::new()));
@@ -167,7 +194,11 @@ impl Node {
                     // Maximum simultaneous peer connections
                     let peer_count = peers.read().await.len();
                     if peer_count >= MAX_PEERS {
-                        tracing::warn!("max peers reached ({}), rejecting {}", MAX_PEERS, peer_addr);
+                        tracing::warn!(
+                            "max peers reached ({}), rejecting {}",
+                            MAX_PEERS,
+                            peer_addr
+                        );
                         continue;
                     }
 
@@ -187,7 +218,11 @@ impl Node {
                         }
                         entry.0 += 1;
                         if entry.0 > MAX_CONNECTIONS_PER_IP {
-                            tracing::warn!("rate limit exceeded for IP {}: {} connections in window", peer_ip, entry.0);
+                            tracing::warn!(
+                                "rate limit exceeded for IP {}: {} connections in window",
+                                peer_ip,
+                                entry.0
+                            );
                             continue;
                         }
                     }
@@ -199,7 +234,9 @@ impl Node {
 
                     let peer_ip = peer_addr.ip().to_string();
                     tokio::spawn(async move {
-                        if let Err(e) = Self::handle_connection(stream, bc, peers, etx, peer_ip).await {
+                        if let Err(e) =
+                            Self::handle_connection(stream, bc, peers, etx, peer_ip).await
+                        {
                             tracing::warn!("Peer {} error: {}", peer_addr, e);
                         }
                     });
@@ -231,21 +268,34 @@ impl Node {
 
             // Drop messages from peers that haven't completed the handshake yet
             if !handshake_done && !matches!(msg, Message::Handshake { .. }) {
-                tracing::warn!("Rejected pre-handshake message from {}: handshake not complete", peer_ip);
+                tracing::warn!(
+                    "Rejected pre-handshake message from {}: handshake not complete",
+                    peer_ip
+                );
                 return Err(SentrixError::NetworkError(
-                    "message received before handshake".to_string()
+                    "message received before handshake".to_string(),
                 ));
             }
 
             match msg {
-                Message::Handshake { host: _, port, height, chain_id } => {
+                Message::Handshake {
+                    host: _,
+                    port,
+                    height,
+                    chain_id,
+                } => {
                     // Validate chain_id matches
                     let bc = blockchain.read().await;
                     if chain_id != bc.chain_id {
-                        tracing::warn!("Rejected peer: chain_id mismatch (theirs: {}, ours: {})", chain_id, bc.chain_id);
-                        return Err(SentrixError::NetworkError(
-                            format!("chain_id mismatch: {} vs {}", chain_id, bc.chain_id)
-                        ));
+                        tracing::warn!(
+                            "Rejected peer: chain_id mismatch (theirs: {}, ours: {})",
+                            chain_id,
+                            bc.chain_id
+                        );
+                        return Err(SentrixError::NetworkError(format!(
+                            "chain_id mismatch: {} vs {}",
+                            chain_id, bc.chain_id
+                        )));
                     }
 
                     // Register peer using actual TCP IP + declared P2P port
@@ -253,7 +303,12 @@ impl Node {
                     let our_chain_id = bc.chain_id;
                     drop(bc);
 
-                    let peer = Peer { host: peer_ip.clone(), port, height, chain_id };
+                    let peer = Peer {
+                        host: peer_ip.clone(),
+                        port,
+                        height,
+                        chain_id,
+                    };
                     let peer_addr = peer.addr();
                     peers.write().await.insert(peer_addr.clone(), peer);
                     let _ = event_tx.send(NodeEvent::PeerConnected(peer_addr)).await;
@@ -271,10 +326,12 @@ impl Node {
                     // Handshake response and would close the stream, leaving our GetBlocks unanswered.
                     if height > our_height {
                         let sync_addr = format!("{}:{}", peer_ip, port);
-                        let _ = event_tx.send(NodeEvent::SyncNeeded {
-                            peer_addr: sync_addr,
-                            peer_height: height,
-                        }).await;
+                        let _ = event_tx
+                            .send(NodeEvent::SyncNeeded {
+                                peer_addr: sync_addr,
+                                peer_height: height,
+                            })
+                            .await;
                     }
                 }
 
@@ -329,7 +386,9 @@ impl Node {
 
                 Message::GetHeight => {
                     let bc = blockchain.read().await;
-                    let response = Message::HeightResponse { height: bc.height() };
+                    let response = Message::HeightResponse {
+                        height: bc.height(),
+                    };
                     Self::send_message(&mut stream, &response).await?;
                 }
 
@@ -342,7 +401,9 @@ impl Node {
 
                 Message::Ping => {
                     let bc = blockchain.read().await;
-                    let response = Message::Pong { height: bc.height() };
+                    let response = Message::Pong {
+                        height: bc.height(),
+                    };
                     Self::send_message(&mut stream, &response).await?;
                 }
 
@@ -355,7 +416,8 @@ impl Node {
 
     pub async fn connect_peer(&self, host: &str, port: u16) -> SentrixResult<()> {
         let addr = format!("{}:{}", host, port);
-        let mut stream = TcpStream::connect(&addr).await
+        let mut stream = TcpStream::connect(&addr)
+            .await
             .map_err(|e| SentrixError::NetworkError(format!("connect {}: {}", addr, e)))?;
 
         let bc = self.blockchain.read().await;
@@ -371,20 +433,34 @@ impl Node {
 
         // Read handshake response + verify chain_id
         match Self::read_message(&mut stream).await? {
-            Message::Handshake { host: _, port: _, height, chain_id } => {
+            Message::Handshake {
+                host: _,
+                port: _,
+                height,
+                chain_id,
+            } => {
                 // Verify chain_id on outbound connections to prevent cross-network peer pollution
                 let our_chain_id = self.blockchain.read().await.chain_id;
                 if chain_id != our_chain_id {
-                    return Err(SentrixError::NetworkError(
-                        format!("outbound peer {} chain_id mismatch: {} vs {}", addr, chain_id, our_chain_id)
-                    ));
+                    return Err(SentrixError::NetworkError(format!(
+                        "outbound peer {} chain_id mismatch: {} vs {}",
+                        addr, chain_id, our_chain_id
+                    )));
                 }
 
                 // Use the actual connection target (host:port) for broadcasting, not the handshake response
-                let peer = Peer { host: host.to_string(), port, height, chain_id };
+                let peer = Peer {
+                    host: host.to_string(),
+                    port,
+                    height,
+                    chain_id,
+                };
                 let peer_addr = peer.addr();
                 self.peers.write().await.insert(peer_addr.clone(), peer);
-                let _ = self.event_tx.send(NodeEvent::PeerConnected(peer_addr.clone())).await;
+                let _ = self
+                    .event_tx
+                    .send(NodeEvent::PeerConnected(peer_addr.clone()))
+                    .await;
                 tracing::info!("Connected to peer {} (height: {})", peer_addr, height);
 
                 // If peer has more blocks, sync
@@ -392,11 +468,15 @@ impl Node {
                 if height > bc.height() {
                     let our_height = bc.height();
                     drop(bc);
-                    let get_blocks = Message::GetBlocks { from_height: our_height + 1 };
+                    let get_blocks = Message::GetBlocks {
+                        from_height: our_height + 1,
+                    };
                     Self::send_message(&mut stream, &get_blocks).await?;
 
                     // Read blocks response
-                    if let Ok(Message::BlocksResponse { blocks }) = Self::read_message(&mut stream).await {
+                    if let Ok(Message::BlocksResponse { blocks }) =
+                        Self::read_message(&mut stream).await
+                    {
                         let mut bc = self.blockchain.write().await;
                         let mut applied = 0;
                         for block in blocks {
@@ -413,7 +493,7 @@ impl Node {
 
                 Ok(())
             }
-            _ => Err(SentrixError::NetworkError("expected handshake".to_string()))
+            _ => Err(SentrixError::NetworkError("expected handshake".to_string())),
         }
     }
 
@@ -434,7 +514,9 @@ impl Node {
                 match tokio::time::timeout(
                     std::time::Duration::from_secs(5),
                     TcpStream::connect(&peer_addr),
-                ).await {
+                )
+                .await
+                {
                     Ok(Ok(mut stream)) => {
                         let _ = stream.write_all(&data).await;
                     }
@@ -450,11 +532,17 @@ impl Node {
     }
 
     pub async fn broadcast_block(&self, block: &Block) {
-        self.broadcast(&Message::NewBlock { block: block.clone() }).await;
+        self.broadcast(&Message::NewBlock {
+            block: block.clone(),
+        })
+        .await;
     }
 
     pub async fn broadcast_transaction(&self, tx: &Transaction) {
-        self.broadcast(&Message::NewTransaction { transaction: tx.clone() }).await;
+        self.broadcast(&Message::NewTransaction {
+            transaction: tx.clone(),
+        })
+        .await;
     }
 
     // ── Queries ──────────────────────────────────────────
@@ -464,16 +552,16 @@ impl Node {
     }
 
     pub async fn peer_list(&self) -> Vec<(String, u64)> {
-        self.peers.read().await.iter()
+        self.peers
+            .read()
+            .await
+            .iter()
             .map(|(addr, p)| (addr.clone(), p.height))
             .collect()
     }
 
     /// Check if IP is rate limited (for testing rate limit behavior)
-    pub fn check_rate_limit(
-        counts: &mut HashMap<IpAddr, (u32, Instant)>,
-        ip: IpAddr,
-    ) -> bool {
+    pub fn check_rate_limit(counts: &mut HashMap<IpAddr, (u32, Instant)>, ip: IpAddr) -> bool {
         let entry = counts.entry(ip).or_insert((0, Instant::now()));
         if entry.1.elapsed() > RATE_LIMIT_WINDOW {
             *entry = (0, Instant::now());
@@ -537,13 +625,19 @@ mod tests {
                 height: 0,
                 chain_id: 9999, // wrong!
             };
-            Node::send_message(&mut stream, &bad_handshake).await.unwrap();
+            Node::send_message(&mut stream, &bad_handshake)
+                .await
+                .unwrap();
         });
 
         // Node1 connects — should fail due to chain_id mismatch
         let result = node1.connect_peer("127.0.0.1", port).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("chain_id mismatch"), "Expected chain_id error, got: {}", err);
+        assert!(
+            err.contains("chain_id mismatch"),
+            "Expected chain_id error, got: {}",
+            err
+        );
     }
 }

@@ -13,7 +13,7 @@ mod common;
 
 use sentrix::core::block::Block;
 use sentrix::core::blockchain::BLOCK_REWARD;
-use sentrix::core::transaction::{Transaction, MIN_TX_FEE};
+use sentrix::core::transaction::{MIN_TX_FEE, Transaction};
 use sentrix::wallet::wallet::Wallet;
 
 /// A valid chain of N blocks must pass is_valid_chain().
@@ -23,7 +23,10 @@ fn test_valid_chain_passes() {
     for _ in 0..50 {
         common::mine_empty_block(&mut bc, &val.address);
     }
-    assert!(bc.is_valid_chain_window(), "valid 50-block chain should pass validation");
+    assert!(
+        bc.is_valid_chain_window(),
+        "valid 50-block chain should pass validation"
+    );
 }
 
 /// A block with a wrong previous_hash must be rejected.
@@ -46,7 +49,10 @@ fn test_block_with_wrong_prev_hash_rejected() {
     );
 
     let result = bc.add_block(tampered_block);
-    assert!(result.is_err(), "block with wrong prev_hash must be rejected");
+    assert!(
+        result.is_err(),
+        "block with wrong prev_hash must be rejected"
+    );
 }
 
 /// A block from an address that is not a registered validator must be rejected.
@@ -65,11 +71,17 @@ fn test_block_from_unauthorized_validator_rejected() {
     let bad_block = Block::new(2, prev_hash, vec![coinbase], intruder.address.clone());
 
     let result = bc.add_block(bad_block);
-    assert!(result.is_err(), "block from unauthorized validator must be rejected");
+    assert!(
+        result.is_err(),
+        "block from unauthorized validator must be rejected"
+    );
     let err_str = result.unwrap_err().to_string();
     assert!(
-        err_str.contains("authorized") || err_str.contains("validator") || err_str.contains("Unauthorized"),
-        "error should mention authorization: {}", err_str
+        err_str.contains("authorized")
+            || err_str.contains("validator")
+            || err_str.contains("Unauthorized"),
+        "error should mention authorization: {}",
+        err_str
     );
 }
 
@@ -89,11 +101,15 @@ fn test_block_with_oversized_coinbase_rejected() {
     let bad_block = Block::new(2, prev_hash, vec![coinbase], val.address.clone());
 
     let result = bc.add_block(bad_block);
-    assert!(result.is_err(), "block with inflated coinbase must be rejected");
+    assert!(
+        result.is_err(),
+        "block with inflated coinbase must be rejected"
+    );
     let err_str = result.unwrap_err().to_string();
     assert!(
         err_str.contains("coinbase") || err_str.contains("reward"),
-        "error should mention coinbase/reward: {}", err_str
+        "error should mention coinbase/reward: {}",
+        err_str
     );
 }
 
@@ -138,7 +154,10 @@ fn test_block_with_wrong_chain_id_tx_rejected() {
 
     // This should be rejected at mempool stage (chain_id mismatch)
     let result = bc.add_to_mempool(wrong_chain_tx);
-    assert!(result.is_err(), "TX with wrong chain_id must be rejected at mempool");
+    assert!(
+        result.is_err(),
+        "TX with wrong chain_id must be rejected at mempool"
+    );
 }
 
 /// Block::is_valid_hash() correctly detects a tampered hash field.
@@ -149,7 +168,10 @@ fn test_block_is_valid_hash_detects_tampering() {
 
     // Get block 1 (valid)
     let valid_block = bc.get_block(1).expect("block 1");
-    assert!(valid_block.is_valid_hash(), "valid block should pass hash check");
+    assert!(
+        valid_block.is_valid_hash(),
+        "valid block should pass hash check"
+    );
 
     // Clone and tamper with the stored hash field
     let mut tampered = valid_block.clone();
@@ -175,7 +197,10 @@ fn test_chain_validity_after_mixed_blocks() {
     }
 
     assert_eq!(bc.height(), 50);
-    assert!(bc.is_valid_chain_window(), "50-block mixed chain must be valid");
+    assert!(
+        bc.is_valid_chain_window(),
+        "50-block mixed chain must be valid"
+    );
 }
 
 /// A second blockchain independently mines the same transactions and reaches
@@ -192,7 +217,11 @@ fn test_independent_chains_have_same_height() {
         common::mine_empty_block(&mut bc2, &val2.address);
     }
 
-    assert_eq!(bc1.height(), bc2.height(), "independently mined chains must have same height");
+    assert_eq!(
+        bc1.height(),
+        bc2.height(),
+        "independently mined chains must have same height"
+    );
     assert!(bc1.is_valid_chain_window());
     assert!(bc2.is_valid_chain_window());
 }

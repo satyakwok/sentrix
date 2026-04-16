@@ -38,13 +38,27 @@ fn test_restart_preserves_full_state() {
 
     // Reload from storage (simulate restart)
     let storage2 = Storage::open(&path).expect("storage reopen");
-    let loaded = storage2.load_blockchain().expect("load_blockchain error").expect("no state found");
+    let loaded = storage2
+        .load_blockchain()
+        .expect("load_blockchain error")
+        .expect("no state found");
 
     // ── Assert all state is identical ──────────────────────────────────────────
-    assert_eq!(loaded.height(), height_before, "height mismatch after restart");
+    assert_eq!(
+        loaded.height(),
+        height_before,
+        "height mismatch after restart"
+    );
     assert_eq!(loaded.height(), 10, "expected exactly 10 blocks");
-    assert_eq!(loaded.accounts.total_burned, burned_before, "total_burned changed after restart");
-    assert_eq!(loaded.accounts.total_supply(), supply_before, "total supply changed after restart");
+    assert_eq!(
+        loaded.accounts.total_burned, burned_before,
+        "total_burned changed after restart"
+    );
+    assert_eq!(
+        loaded.accounts.total_supply(),
+        supply_before,
+        "total supply changed after restart"
+    );
     assert_eq!(
         loaded.accounts.get_balance(&val.address),
         validator_balance_before,
@@ -52,19 +66,30 @@ fn test_restart_preserves_full_state() {
     );
 
     // Chain must still be valid
-    assert!(loaded.is_valid_chain_window(), "chain invalid after restart");
+    assert!(
+        loaded.is_valid_chain_window(),
+        "chain invalid after restart"
+    );
 
     // Block hashes must be identical for all blocks in the sliding window
     let window_start = loaded.chain_window_start();
     for (idx, expected_hash) in &hashes_before {
         if *idx >= window_start {
             let block = loaded.get_block(*idx).expect("block should be in window");
-            assert_eq!(&block.hash, expected_hash, "hash mismatch for block {}", idx);
+            assert_eq!(
+                &block.hash, expected_hash,
+                "hash mismatch for block {}",
+                idx
+            );
         }
     }
 
     // Mempool must be empty — stale in-flight TXs are not persisted
-    assert_eq!(loaded.mempool_size(), 0, "mempool should be empty after restart");
+    assert_eq!(
+        loaded.mempool_size(),
+        0,
+        "mempool should be empty after restart"
+    );
 }
 
 /// Non-stale pending transactions survive a restart (mempool is persisted).
@@ -80,7 +105,13 @@ fn test_restart_preserves_pending_mempool_txs() {
 
     // Fund a sender and submit a TX to mempool (do NOT mine it)
     let sender = common::funded_wallet(&mut bc, 10_000_000);
-    let tx = common::make_tx(&bc, &sender, common::RECV, 100_000, sentrix::core::transaction::MIN_TX_FEE);
+    let tx = common::make_tx(
+        &bc,
+        &sender,
+        common::RECV,
+        100_000,
+        sentrix::core::transaction::MIN_TX_FEE,
+    );
     bc.add_to_mempool(tx).expect("add_to_mempool");
     assert_eq!(bc.mempool_size(), 1, "mempool should have 1 pending tx");
 
@@ -96,12 +127,20 @@ fn test_restart_preserves_pending_mempool_txs() {
     let mut loaded = storage2.load_blockchain().expect("load").expect("no state");
 
     // Non-stale TX survives the restart
-    assert_eq!(loaded.mempool_size(), 1, "non-stale pending TX must survive restart");
+    assert_eq!(
+        loaded.mempool_size(),
+        1,
+        "non-stale pending TX must survive restart"
+    );
 
     // After restart, the node can still mine the pending TX
     common::mine_block_with_mempool(&mut loaded, &val.address);
     assert_eq!(loaded.mempool_size(), 0, "TX must be mined after restart");
-    assert_eq!(loaded.accounts.get_balance(common::RECV), 100_000, "receiver must have funds");
+    assert_eq!(
+        loaded.accounts.get_balance(common::RECV),
+        100_000,
+        "receiver must have funds"
+    );
 }
 
 /// Chain height must survive restart without corruption.
@@ -123,6 +162,13 @@ fn test_restart_height_integrity() {
 
     let storage2 = Storage::open(&path).expect("reopen");
     let loaded = storage2.load_blockchain().expect("load").expect("no state");
-    assert_eq!(loaded.height(), expected_height, "height must survive restart");
-    assert!(loaded.is_valid_chain_window(), "reloaded chain must be valid");
+    assert_eq!(
+        loaded.height(),
+        expected_height,
+        "height must survive restart"
+    );
+    assert!(
+        loaded.is_valid_chain_window(),
+        "reloaded chain must be valid"
+    );
 }

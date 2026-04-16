@@ -1,18 +1,16 @@
 // account.rs - Sentrix
 
+use crate::types::error::{SentrixError, SentrixResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::types::error::{SentrixError, SentrixResult};
 
 pub const SENTRI_PER_SRX: u64 = 100_000_000;
 
 /// Keccak-256 hash of empty bytecode (EOA accounts).
 /// Equivalent to keccak256(&[]) = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470
 pub const EMPTY_CODE_HASH: [u8; 32] = [
-    0xc5, 0xd2, 0x46, 0x01, 0x86, 0xf7, 0x23, 0x3c,
-    0x92, 0x7e, 0x7d, 0xb2, 0xdc, 0xc7, 0x03, 0xc0,
-    0xe5, 0x00, 0xb6, 0x53, 0xca, 0x82, 0x27, 0x3b,
-    0x7b, 0xfa, 0xd8, 0x04, 0x5d, 0x85, 0xa4, 0x70,
+    0xc5, 0xd2, 0x46, 0x01, 0x86, 0xf7, 0x23, 0x3c, 0x92, 0x7e, 0x7d, 0xb2, 0xdc, 0xc7, 0x03, 0xc0,
+    0xe5, 0x00, 0xb6, 0x53, 0xca, 0x82, 0x27, 0x3b, 0x7b, 0xfa, 0xd8, 0x04, 0x5d, 0x85, 0xa4, 0x70,
 ];
 
 /// Empty storage root (no contract storage).
@@ -21,7 +19,7 @@ pub const EMPTY_STORAGE_ROOT: [u8; 32] = [0u8; 32];
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Account {
     pub address: String,
-    pub balance: u64,   // in sentri units (EVM boundary converts to U256)
+    pub balance: u64, // in sentri units (EVM boundary converts to U256)
     pub nonce: u64,
     /// Keccak-256 of contract bytecode. EMPTY_CODE_HASH for EOA (non-contract) accounts.
     /// Added in Voyager EVM upgrade. Defaults to EMPTY_CODE_HASH for backward compat.
@@ -61,7 +59,7 @@ impl Account {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AccountDB {
     pub accounts: HashMap<String, Account>,
-    pub total_burned: u64,  // total SRX burned in sentri
+    pub total_burned: u64, // total SRX burned in sentri
     /// Contract bytecode storage: code_hash (hex) → bytecode bytes.
     /// Only populated after Voyager EVM fork.
     #[serde(default)]
@@ -98,19 +96,16 @@ impl AccountDB {
 
     pub fn credit(&mut self, address: &str, amount: u64) -> SentrixResult<()> {
         let account = self.get_or_create(address);
-        account.balance = account.balance.checked_add(amount)
+        account.balance = account
+            .balance
+            .checked_add(amount)
             .ok_or_else(|| SentrixError::Internal("balance overflow".to_string()))?;
         Ok(())
     }
 
-    pub fn transfer(
-        &mut self,
-        from: &str,
-        to: &str,
-        amount: u64,
-        fee: u64,
-    ) -> SentrixResult<()> {
-        let total = amount.checked_add(fee)
+    pub fn transfer(&mut self, from: &str, to: &str, amount: u64, fee: u64) -> SentrixResult<()> {
+        let total = amount
+            .checked_add(fee)
             .ok_or_else(|| SentrixError::Internal("amount + fee overflow".to_string()))?;
         let from_balance = self.get_balance(from);
 
@@ -124,7 +119,9 @@ impl AccountDB {
         // Deduct from sender
         {
             let sender = self.get_or_create(from);
-            sender.balance = sender.balance.checked_sub(total)
+            sender.balance = sender
+                .balance
+                .checked_sub(total)
                 .ok_or_else(|| SentrixError::Internal("balance underflow".to_string()))?;
             sender.nonce += 1;
         }
@@ -139,8 +136,14 @@ impl AccountDB {
         Ok(())
     }
 
-    pub fn apply_block_reward(&mut self, validator: &str, reward: u64, fee_share: u64) -> SentrixResult<()> {
-        let total = reward.checked_add(fee_share)
+    pub fn apply_block_reward(
+        &mut self,
+        validator: &str,
+        reward: u64,
+        fee_share: u64,
+    ) -> SentrixResult<()> {
+        let total = reward
+            .checked_add(fee_share)
             .ok_or_else(|| SentrixError::Internal("reward overflow".to_string()))?;
         self.credit(validator, total)
     }
@@ -151,7 +154,8 @@ impl AccountDB {
 
     /// Store contract bytecode, keyed by its keccak-256 hash (hex).
     pub fn store_contract_code(&mut self, code_hash_hex: &str, bytecode: Vec<u8>) {
-        self.contract_code.insert(code_hash_hex.to_string(), bytecode);
+        self.contract_code
+            .insert(code_hash_hex.to_string(), bytecode);
     }
 
     /// Get contract bytecode by its code_hash (hex).
@@ -330,10 +334,20 @@ mod tests {
     fn test_set_contract() {
         let mut db = AccountDB::new();
         db.credit("0xaddr", 1000).unwrap();
-        assert!(!db.accounts.get("0xaddr").map(|a| a.is_contract()).unwrap_or(false));
+        assert!(
+            !db.accounts
+                .get("0xaddr")
+                .map(|a| a.is_contract())
+                .unwrap_or(false)
+        );
 
         db.set_contract("0xaddr", [0xBB; 32]);
-        assert!(db.accounts.get("0xaddr").map(|a| a.is_contract()).unwrap_or(false));
+        assert!(
+            db.accounts
+                .get("0xaddr")
+                .map(|a| a.is_contract())
+                .unwrap_or(false)
+        );
     }
 
     #[test]

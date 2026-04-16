@@ -3,12 +3,12 @@
 // Maps Sentrix account state to revm's Database trait, allowing the EVM
 // to read balances, nonces, contract code, and storage from our trie.
 
-use alloy_primitives::{Address, B256, U256};
-use revm::database_interface::{Database, DBErrorMarker};
-use revm::state::{AccountInfo, Bytecode};
-use revm::primitives::KECCAK_EMPTY;
-use std::collections::HashMap;
 use crate::core::account::{AccountDB, EMPTY_CODE_HASH};
+use alloy_primitives::{Address, B256, U256};
+use revm::database_interface::{DBErrorMarker, Database};
+use revm::primitives::KECCAK_EMPTY;
+use revm::state::{AccountInfo, Bytecode};
+use std::collections::HashMap;
 
 /// Minimal EVM database error type that implements DBErrorMarker.
 /// Wraps string error messages for simplicity.
@@ -86,7 +86,9 @@ impl SentrixEvmDb {
         if let Some(addr) = parse_sentrix_address(address_str) {
             let balance = account_db.get_balance(address_str);
             let nonce = account_db.get_nonce(address_str);
-            let code_hash = account_db.accounts.get(address_str)
+            let code_hash = account_db
+                .accounts
+                .get(address_str)
                 .filter(|a| a.code_hash != EMPTY_CODE_HASH)
                 .map(|a| B256::from(a.code_hash))
                 .unwrap_or(KECCAK_EMPTY);
@@ -104,7 +106,9 @@ impl SentrixEvmDb {
     /// Load block hashes from the chain window for BLOCKHASH opcode.
     pub fn load_block_hashes(&mut self, blocks: &[(u64, String)]) {
         for (number, hash_hex) in blocks {
-            if let Ok(bytes) = hex::decode(hash_hex) && bytes.len() == 32 {
+            if let Ok(bytes) = hex::decode(hash_hex)
+                && bytes.len() == 32
+            {
                 let mut arr = [0u8; 32];
                 arr.copy_from_slice(&bytes);
                 self.block_hashes.insert(*number, B256::from(arr));
@@ -148,11 +152,19 @@ impl Database for SentrixEvmDb {
     }
 
     fn storage(&mut self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        Ok(self.storage.get(&(address, index)).copied().unwrap_or(U256::ZERO))
+        Ok(self
+            .storage
+            .get(&(address, index))
+            .copied()
+            .unwrap_or(U256::ZERO))
     }
 
     fn block_hash(&mut self, number: u64) -> Result<B256, Self::Error> {
-        Ok(self.block_hashes.get(&number).copied().unwrap_or(B256::ZERO))
+        Ok(self
+            .block_hashes
+            .get(&number)
+            .copied()
+            .unwrap_or(B256::ZERO))
     }
 }
 
@@ -262,7 +274,10 @@ mod tests {
         let addr = parse_sentrix_address("0x4f3319a747fd564136209cd5d9e7d1a1e4d142be");
         assert!(addr.is_some());
         let addr = addr.unwrap();
-        assert_eq!(address_to_sentrix(&addr), "0x4f3319a747fd564136209cd5d9e7d1a1e4d142be");
+        assert_eq!(
+            address_to_sentrix(&addr),
+            "0x4f3319a747fd564136209cd5d9e7d1a1e4d142be"
+        );
     }
 
     #[test]
@@ -275,8 +290,12 @@ mod tests {
     #[test]
     fn test_from_account_db() {
         let mut account_db = AccountDB::new();
-        account_db.credit("0x4f3319a747fd564136209cd5d9e7d1a1e4d142be", 1_000_000).unwrap();
-        account_db.get_or_create("0x4f3319a747fd564136209cd5d9e7d1a1e4d142be").nonce = 3;
+        account_db
+            .credit("0x4f3319a747fd564136209cd5d9e7d1a1e4d142be", 1_000_000)
+            .unwrap();
+        account_db
+            .get_or_create("0x4f3319a747fd564136209cd5d9e7d1a1e4d142be")
+            .nonce = 3;
 
         let mut evm_db = SentrixEvmDb::from_account_db(&account_db);
         let addr = parse_sentrix_address("0x4f3319a747fd564136209cd5d9e7d1a1e4d142be").unwrap();
@@ -288,7 +307,9 @@ mod tests {
     #[test]
     fn test_load_account() {
         let mut account_db = AccountDB::new();
-        account_db.credit("0xa7fc67af1ba0c664d859f4c1bcd2eb1f7211f112", 500_000).unwrap();
+        account_db
+            .credit("0xa7fc67af1ba0c664d859f4c1bcd2eb1f7211f112", 500_000)
+            .unwrap();
 
         let mut evm_db = SentrixEvmDb::new();
         evm_db.load_account("0xa7fc67af1ba0c664d859f4c1bcd2eb1f7211f112", &account_db);

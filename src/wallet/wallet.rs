@@ -1,19 +1,19 @@
 // wallet.rs - Sentrix
 
-use secp256k1::{Secp256k1, SecretKey, PublicKey};
-use secp256k1::rand::rngs::OsRng;
-use sha3::Keccak256;
-use sha3::Digest;
-use zeroize::Zeroizing;
 use crate::types::error::{SentrixError, SentrixResult};
+use secp256k1::rand::rngs::OsRng;
+use secp256k1::{PublicKey, Secp256k1, SecretKey};
+use sha3::Digest;
+use sha3::Keccak256;
+use zeroize::Zeroizing;
 
 // No Clone — prevents accidental secret key duplication in memory
 // secret_key_bytes is Zeroizing<[u8; 32]> — automatically zeroed on drop, never stored as a heap String
 #[derive(Debug)]
 pub struct Wallet {
-    pub address: String,         // 0x + 40 hex chars (Ethereum style)
-    pub public_key: String,      // hex encoded uncompressed pubkey (65 bytes)
-    secret_key_bytes: Zeroizing<[u8; 32]>,  // private — Zeroizing handles drop automatically
+    pub address: String,                   // 0x + 40 hex chars (Ethereum style)
+    pub public_key: String,                // hex encoded uncompressed pubkey (65 bytes)
+    secret_key_bytes: Zeroizing<[u8; 32]>, // private — Zeroizing handles drop automatically
 }
 
 // No manual Drop needed — Zeroizing<T> zeroes memory automatically when dropped
@@ -40,10 +40,9 @@ impl Wallet {
 
     // Import from private key hex
     pub fn from_private_key(private_key_hex: &str) -> SentrixResult<Self> {
-        let bytes = hex::decode(private_key_hex)
-            .map_err(|_| SentrixError::InvalidPrivateKey)?;
-        let secret_key = SecretKey::from_slice(&bytes)
-            .map_err(|_| SentrixError::InvalidPrivateKey)?;
+        let bytes = hex::decode(private_key_hex).map_err(|_| SentrixError::InvalidPrivateKey)?;
+        let secret_key =
+            SecretKey::from_slice(&bytes).map_err(|_| SentrixError::InvalidPrivateKey)?;
         let secp = Secp256k1::new();
         let public_key = PublicKey::from_secret_key(&secp, &secret_key);
         Ok(Self::from_keypair(&secret_key, &public_key))
@@ -71,15 +70,12 @@ impl Wallet {
     }
 
     pub fn get_secret_key(&self) -> SentrixResult<SecretKey> {
-        SecretKey::from_slice(&*self.secret_key_bytes)
-            .map_err(|_| SentrixError::InvalidPrivateKey)
+        SecretKey::from_slice(&*self.secret_key_bytes).map_err(|_| SentrixError::InvalidPrivateKey)
     }
 
     pub fn get_public_key(&self) -> SentrixResult<PublicKey> {
-        let bytes = hex::decode(&self.public_key)
-            .map_err(|_| SentrixError::InvalidSignature)?;
-        PublicKey::from_slice(&bytes)
-            .map_err(|_| SentrixError::InvalidSignature)
+        let bytes = hex::decode(&self.public_key).map_err(|_| SentrixError::InvalidSignature)?;
+        PublicKey::from_slice(&bytes).map_err(|_| SentrixError::InvalidSignature)
     }
 }
 

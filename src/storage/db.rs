@@ -1,10 +1,10 @@
 // db.rs - Sentrix — Per-block persistent storage
 
-use sled::Db;
-use serde::{Serialize, de::DeserializeOwned};
 use crate::core::block::Block;
 use crate::core::blockchain::{Blockchain, CHAIN_WINDOW_SIZE};
 use crate::types::error::{SentrixError, SentrixResult};
+use serde::{Serialize, de::DeserializeOwned};
+use sled::Db;
 
 pub struct Storage {
     db: Db,
@@ -22,8 +22,7 @@ impl Storage {
             );
         }
 
-        let db = sled::open(path)
-            .map_err(|e| SentrixError::StorageError(e.to_string()))?;
+        let db = sled::open(path).map_err(|e| SentrixError::StorageError(e.to_string()))?;
         let storage = Self { db };
         // Re-index blocks missing a hash→index entry (one-time migration for pre-index data)
         storage.ensure_hash_index()?;
@@ -64,13 +63,18 @@ impl Storage {
 
     fn put<T: Serialize>(&self, key: &str, value: &T) -> SentrixResult<()> {
         let bytes = serde_json::to_vec(value)?;
-        self.db.insert(key, bytes)
+        self.db
+            .insert(key, bytes)
             .map_err(|e| SentrixError::StorageError(e.to_string()))?;
         Ok(())
     }
 
     fn get<T: DeserializeOwned>(&self, key: &str) -> SentrixResult<Option<T>> {
-        match self.db.get(key).map_err(|e| SentrixError::StorageError(e.to_string()))? {
+        match self
+            .db
+            .get(key)
+            .map_err(|e| SentrixError::StorageError(e.to_string()))?
+        {
             Some(bytes) => {
                 let value = serde_json::from_slice(&bytes)?;
                 Ok(Some(value))
@@ -80,7 +84,8 @@ impl Storage {
     }
 
     fn flush(&self) -> SentrixResult<()> {
-        self.db.flush()
+        self.db
+            .flush()
             .map_err(|e| SentrixError::StorageError(e.to_string()))?;
         Ok(())
     }
@@ -143,7 +148,9 @@ impl Storage {
                         tracing::warn!(
                             "Block {} missing in sled (stored height = {}). \
                              Adjusting height to {}. Node will re-sync from peers.",
-                            i, height, effective
+                            i,
+                            height,
+                            effective
                         );
                         self.save_height(effective)?;
                         break;
@@ -234,7 +241,8 @@ impl Storage {
     }
 
     pub fn clear(&self) -> SentrixResult<()> {
-        self.db.clear()
+        self.db
+            .clear()
             .map_err(|e| SentrixError::StorageError(e.to_string()))?;
         Ok(())
     }
@@ -242,12 +250,15 @@ impl Storage {
     /// Drop and re-create the three trie named trees, clearing all trie state.
     /// On next startup init_trie() will detect no committed root and backfill from AccountDB.
     pub fn reset_trie(&self) -> SentrixResult<()> {
-        for tree_name in &["trie_nodes", "trie_values", "trie_roots", "trie_committed_roots"] {
-            self.db
-                .drop_tree(tree_name)
-                .map_err(|e| SentrixError::StorageError(
-                    format!("failed to drop {}: {}", tree_name, e)
-                ))?;
+        for tree_name in &[
+            "trie_nodes",
+            "trie_values",
+            "trie_roots",
+            "trie_committed_roots",
+        ] {
+            self.db.drop_tree(tree_name).map_err(|e| {
+                SentrixError::StorageError(format!("failed to drop {}: {}", tree_name, e))
+            })?;
         }
         self.db
             .flush()
@@ -266,8 +277,7 @@ mod tests {
     use crate::core::blockchain::Blockchain;
 
     fn temp_db_path() -> String {
-        let dir = std::env::temp_dir()
-            .join(format!("sentrix_test_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("sentrix_test_{}", uuid::Uuid::new_v4()));
         dir.to_str().unwrap().to_string()
     }
 
@@ -286,7 +296,9 @@ mod tests {
 
         let mut bc = Blockchain::new("admin".to_string());
         bc.authority.add_validator_unchecked(
-            "val1".to_string(), "Validator 1".to_string(), "pk1".to_string(),
+            "val1".to_string(),
+            "Validator 1".to_string(),
+            "pk1".to_string(),
         );
 
         storage.save_blockchain(&bc).unwrap();
@@ -308,7 +320,9 @@ mod tests {
 
         let mut bc = Blockchain::new("admin".to_string());
         bc.authority.add_validator_unchecked(
-            "val1".to_string(), "V1".to_string(), "pk1".to_string(),
+            "val1".to_string(),
+            "V1".to_string(),
+            "pk1".to_string(),
         );
 
         // Produce a block
@@ -355,7 +369,9 @@ mod tests {
 
         let mut bc = Blockchain::new("admin".to_string());
         bc.authority.add_validator_unchecked(
-            "val1".to_string(), "V1".to_string(), "pk1".to_string(),
+            "val1".to_string(),
+            "V1".to_string(),
+            "pk1".to_string(),
         );
 
         for _ in 0..3 {
@@ -438,8 +454,10 @@ mod tests {
         storage.save_blockchain(&bc).unwrap();
 
         let stored = storage.load_block(0).unwrap().unwrap();
-        assert_eq!(stored.hash, canonical_hash,
-            "save_blockchain must overwrite stale H1 block with canonical H2 block");
+        assert_eq!(
+            stored.hash, canonical_hash,
+            "save_blockchain must overwrite stale H1 block with canonical H2 block"
+        );
 
         let _ = std::fs::remove_dir_all(&path);
     }

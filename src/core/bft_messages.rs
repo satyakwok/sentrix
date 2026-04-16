@@ -4,11 +4,11 @@
 // All serializable with bincode to match P2P wire format.
 // Signatures use secp256k1 ECDSA (same as transaction signing).
 
-use serde::{Deserialize, Serialize};
-use secp256k1::{Secp256k1, Message, SecretKey};
-use secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
-use sha2::{Sha256, Digest};
 use crate::types::error::{SentrixError, SentrixResult};
+use secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
+use secp256k1::{Message, Secp256k1, SecretKey};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 // ── Proposal ─────────────────────────────────────────────────
 
@@ -191,7 +191,7 @@ pub fn sign_payload(payload: &[u8], secret_key: &SecretKey) -> Vec<u8> {
     let sig = secp.sign_ecdsa_recoverable(&msg, secret_key);
     let (rec_id, compact) = sig.serialize_compact();
     let mut out = compact.to_vec(); // 64 bytes
-    out.push(rec_id.to_i32() as u8);   // 1 byte recovery id
+    out.push(rec_id.to_i32() as u8); // 1 byte recovery id
     out
 }
 
@@ -203,13 +203,13 @@ pub fn recover_signer(payload: &[u8], signature: &[u8]) -> SentrixResult<String>
     }
     let secp = Secp256k1::verification_only();
     let hash = Sha256::digest(payload);
-    let msg = Message::from_digest_slice(&hash)
-        .map_err(|_| SentrixError::InvalidSignature)?;
-    let rec_id = RecoveryId::from_i32(signature[64] as i32)
-        .map_err(|_| SentrixError::InvalidSignature)?;
+    let msg = Message::from_digest_slice(&hash).map_err(|_| SentrixError::InvalidSignature)?;
+    let rec_id =
+        RecoveryId::from_i32(signature[64] as i32).map_err(|_| SentrixError::InvalidSignature)?;
     let sig = RecoverableSignature::from_compact(&signature[..64], rec_id)
         .map_err(|_| SentrixError::InvalidSignature)?;
-    let pubkey = secp.recover_ecdsa(&msg, &sig)
+    let pubkey = secp
+        .recover_ecdsa(&msg, &sig)
         .map_err(|_| SentrixError::InvalidSignature)?;
     Ok(crate::wallet::wallet::Wallet::derive_address(&pubkey))
 }
@@ -217,7 +217,10 @@ pub fn recover_signer(payload: &[u8], signature: &[u8]) -> SentrixResult<String>
 /// Verify that a signature was produced by the claimed validator address.
 pub fn verify_vote_signature(payload: &[u8], signature: &[u8], expected_validator: &str) -> bool {
     if signature.is_empty() {
-        tracing::warn!("BFT: UNSIGNED vote from {} (empty signature)", &expected_validator[..12.min(expected_validator.len())]);
+        tracing::warn!(
+            "BFT: UNSIGNED vote from {} (empty signature)",
+            &expected_validator[..12.min(expected_validator.len())]
+        );
         return false;
     }
     match recover_signer(payload, signature) {
@@ -225,7 +228,9 @@ pub fn verify_vote_signature(payload: &[u8], signature: &[u8], expected_validato
         Ok(addr) => {
             tracing::warn!(
                 "BFT sig mismatch: expected={} recovered={} sig_len={}",
-                &expected_validator[..12], &addr[..12], signature.len(),
+                &expected_validator[..12],
+                &addr[..12],
+                signature.len(),
             );
             false
         }
@@ -322,14 +327,20 @@ mod tests {
     #[test]
     fn test_prevote_is_nil() {
         let nil = Prevote {
-            height: 1, round: 0, block_hash: None,
-            validator: "v1".into(), signature: vec![],
+            height: 1,
+            round: 0,
+            block_hash: None,
+            validator: "v1".into(),
+            signature: vec![],
         };
         assert!(nil.is_nil());
 
         let vote = Prevote {
-            height: 1, round: 0, block_hash: Some("hash".into()),
-            validator: "v1".into(), signature: vec![],
+            height: 1,
+            round: 0,
+            block_hash: Some("hash".into()),
+            validator: "v1".into(),
+            signature: vec![],
         };
         assert!(!vote.is_nil());
     }
@@ -337,8 +348,11 @@ mod tests {
     #[test]
     fn test_precommit_is_nil() {
         let nil = Precommit {
-            height: 1, round: 0, block_hash: None,
-            validator: "v1".into(), signature: vec![],
+            height: 1,
+            round: 0,
+            block_hash: None,
+            validator: "v1".into(),
+            signature: vec![],
         };
         assert!(nil.is_nil());
     }
@@ -385,8 +399,11 @@ mod tests {
     #[test]
     fn test_bft_message_enum() {
         let msg = BftMessage::Prevote(Prevote {
-            height: 1, round: 0, block_hash: Some("h".into()),
-            validator: "v".into(), signature: vec![],
+            height: 1,
+            round: 0,
+            block_hash: Some("h".into()),
+            validator: "v".into(),
+            signature: vec![],
         });
         // Just verify it's constructible and matchable
         if let BftMessage::Prevote(v) = msg {
@@ -399,7 +416,8 @@ mod tests {
     #[test]
     fn test_bincode_roundtrip() {
         let prevote = Prevote {
-            height: 12345, round: 3,
+            height: 12345,
+            round: 3,
             block_hash: Some("abc123def456".into()),
             validator: "0xval1".into(),
             signature: vec![1, 2, 3, 4],
@@ -412,7 +430,8 @@ mod tests {
     #[test]
     fn test_bincode_roundtrip_precommit() {
         let pc = Precommit {
-            height: 999, round: 0,
+            height: 999,
+            round: 0,
             block_hash: None,
             validator: "0xval2".into(),
             signature: vec![5, 6, 7],
@@ -433,7 +452,8 @@ mod tests {
         let wallet = make_wallet();
         let sk = wallet.get_secret_key().unwrap();
         let mut pv = Prevote {
-            height: 100, round: 0,
+            height: 100,
+            round: 0,
             block_hash: Some("hash_abc".into()),
             validator: wallet.address.clone(),
             signature: vec![],
@@ -448,7 +468,8 @@ mod tests {
         let wallet = make_wallet();
         let sk = wallet.get_secret_key().unwrap();
         let mut pc = Precommit {
-            height: 200, round: 1,
+            height: 200,
+            round: 1,
             block_hash: Some("hash_def".into()),
             validator: wallet.address.clone(),
             signature: vec![],
@@ -463,7 +484,8 @@ mod tests {
         let wallet = make_wallet();
         let sk = wallet.get_secret_key().unwrap();
         let mut prop = Proposal {
-            height: 300, round: 0,
+            height: 300,
+            round: 0,
             block_hash: "hash_ghi".into(),
             block_data: vec![1, 2, 3],
             proposer: wallet.address.clone(),
@@ -479,7 +501,8 @@ mod tests {
         let wallet = make_wallet();
         let sk = wallet.get_secret_key().unwrap();
         let mut pv = Prevote {
-            height: 100, round: 0,
+            height: 100,
+            round: 0,
             block_hash: Some("original".into()),
             validator: wallet.address.clone(),
             signature: vec![],
@@ -495,7 +518,8 @@ mod tests {
         let wallet = make_wallet();
         let sk = wallet.get_secret_key().unwrap();
         let mut pv = Prevote {
-            height: 100, round: 0,
+            height: 100,
+            round: 0,
             block_hash: Some("hash".into()),
             validator: wallet.address.clone(),
             signature: vec![],
@@ -511,7 +535,8 @@ mod tests {
         let wallet = make_wallet();
         let sk = wallet.get_secret_key().unwrap();
         let mut pv = Prevote {
-            height: 100, round: 0,
+            height: 100,
+            round: 0,
             block_hash: None, // nil vote
             validator: wallet.address.clone(),
             signature: vec![],
@@ -523,7 +548,8 @@ mod tests {
     #[test]
     fn test_empty_signature_fails() {
         let pv = Prevote {
-            height: 100, round: 0,
+            height: 100,
+            round: 0,
             block_hash: Some("hash".into()),
             validator: "0xsome_address".into(),
             signature: vec![], // unsigned

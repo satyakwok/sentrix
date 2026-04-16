@@ -14,19 +14,17 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use libp2p::{
-    gossipsub,
-    identify,
+    PeerId, gossipsub, identify,
     identity::PublicKey,
     kad,
     request_response::{self, ProtocolSupport},
     swarm::NetworkBehaviour,
-    PeerId,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::core::bft_messages::{Precommit, Prevote, Proposal};
 use crate::core::block::Block;
 use crate::core::transaction::Transaction;
-use crate::core::bft_messages::{Proposal, Prevote, Precommit};
 
 // ── Protocol identifier ──────────────────────────────────
 /// Protocol version string — bumped to 2.0.0 for bincode wire format.
@@ -50,7 +48,12 @@ const MAX_MESSAGE_BYTES: usize = 10 * 1024 * 1024;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SentrixRequest {
     /// Initial handshake — carries chain_id for network partitioning.
-    Handshake { host: String, port: u16, height: u64, chain_id: u64 },
+    Handshake {
+        host: String,
+        port: u16,
+        height: u64,
+        chain_id: u64,
+    },
     /// Push a freshly mined block.
     NewBlock { block: Box<Block> },
     /// Push a new mempool transaction.
@@ -73,7 +76,12 @@ pub enum SentrixRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SentrixResponse {
     /// Handshake acknowledgement — peer echoes their own chain state.
-    Handshake { host: String, port: u16, height: u64, chain_id: u64 },
+    Handshake {
+        host: String,
+        port: u16,
+        height: u64,
+        chain_id: u64,
+    },
     /// Batch of blocks answering a `GetBlocks` request.
     BlocksResponse { blocks: Vec<Block> },
     /// Answer to `GetHeight`.
@@ -96,33 +104,47 @@ pub struct SentrixCodec;
 #[async_trait]
 impl request_response::Codec for SentrixCodec {
     type Protocol = String;
-    type Request  = SentrixRequest;
+    type Request = SentrixRequest;
     type Response = SentrixResponse;
 
-    async fn read_request<T>(&mut self, _: &Self::Protocol, io: &mut T)
-        -> io::Result<Self::Request>
-    where T: AsyncRead + Unpin + Send
+    async fn read_request<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Request>
+    where
+        T: AsyncRead + Unpin + Send,
     {
         lp_read(io).await
     }
 
-    async fn read_response<T>(&mut self, _: &Self::Protocol, io: &mut T)
-        -> io::Result<Self::Response>
-    where T: AsyncRead + Unpin + Send
+    async fn read_response<T>(
+        &mut self,
+        _: &Self::Protocol,
+        io: &mut T,
+    ) -> io::Result<Self::Response>
+    where
+        T: AsyncRead + Unpin + Send,
     {
         lp_read(io).await
     }
 
-    async fn write_request<T>(&mut self, _: &Self::Protocol, io: &mut T, req: Self::Request)
-        -> io::Result<()>
-    where T: AsyncWrite + Unpin + Send
+    async fn write_request<T>(
+        &mut self,
+        _: &Self::Protocol,
+        io: &mut T,
+        req: Self::Request,
+    ) -> io::Result<()>
+    where
+        T: AsyncWrite + Unpin + Send,
     {
         lp_write(io, &req).await
     }
 
-    async fn write_response<T>(&mut self, _: &Self::Protocol, io: &mut T, res: Self::Response)
-        -> io::Result<()>
-    where T: AsyncWrite + Unpin + Send
+    async fn write_response<T>(
+        &mut self,
+        _: &Self::Protocol,
+        io: &mut T,
+        res: Self::Response,
+    ) -> io::Result<()>
+    where
+        T: AsyncWrite + Unpin + Send,
     {
         lp_write(io, &res).await
     }
@@ -139,12 +161,14 @@ where
     io.read_exact(&mut len_buf).await?;
     let len = u32::from_be_bytes(len_buf) as usize;
     if len > MAX_MESSAGE_BYTES {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "message too large"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "message too large",
+        ));
     }
     let mut buf = vec![0u8; len];
     io.read_exact(&mut buf).await?;
-    bincode::deserialize(&buf)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    bincode::deserialize(&buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
 async fn lp_write<T, S>(io: &mut T, val: &S) -> io::Result<()>
@@ -152,10 +176,13 @@ where
     T: AsyncWrite + Unpin + Send,
     S: Serialize,
 {
-    let bytes = bincode::serialize(val)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let bytes =
+        bincode::serialize(val).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     if bytes.len() > MAX_MESSAGE_BYTES {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "message too large"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "message too large",
+        ));
     }
     let len = (bytes.len() as u32).to_be_bytes();
     io.write_all(&len).await?;
@@ -190,15 +217,15 @@ impl SentrixBehaviour {
     #[allow(clippy::expect_used)] // All expects use compile-time-known valid inputs
     pub fn new(local_peer_id: PeerId, local_public_key: PublicKey) -> Self {
         // Identify
-        let identify = identify::Behaviour::new(
-            identify::Config::new(SENTRIX_PROTOCOL.to_string(), local_public_key),
-        );
+        let identify = identify::Behaviour::new(identify::Config::new(
+            SENTRIX_PROTOCOL.to_string(),
+            local_public_key,
+        ));
 
         // Kademlia DHT for peer discovery
         let store = kad::store::MemoryStore::new(local_peer_id);
-        let kad_protocol = libp2p::StreamProtocol::try_from_owned(
-            "/sentrix/kad/1.0.0".to_string(),
-        ).expect("valid protocol");
+        let kad_protocol = libp2p::StreamProtocol::try_from_owned("/sentrix/kad/1.0.0".to_string())
+            .expect("valid protocol");
         let mut kad_config = kad::Config::new(kad_protocol);
         kad_config.set_query_timeout(Duration::from_secs(30));
         let kademlia = kad::Behaviour::with_config(local_peer_id, store, kad_config);
@@ -216,23 +243,31 @@ impl SentrixBehaviour {
                 libp2p::identity::Keypair::generate_ed25519(),
             ),
             gossipsub_config,
-        ).expect("valid gossipsub behaviour");
+        )
+        .expect("valid gossipsub behaviour");
 
         // Subscribe to block and transaction topics
         let blocks_topic = gossipsub::IdentTopic::new(BLOCKS_TOPIC);
         let txs_topic = gossipsub::IdentTopic::new(TXS_TOPIC);
-        gossipsub.subscribe(&blocks_topic).expect("subscribe blocks");
+        gossipsub
+            .subscribe(&blocks_topic)
+            .expect("subscribe blocks");
         gossipsub.subscribe(&txs_topic).expect("subscribe txs");
 
         // Request-response for sync + handshake
-        let rr_config = request_response::Config::default()
-            .with_request_timeout(Duration::from_secs(60));
+        let rr_config =
+            request_response::Config::default().with_request_timeout(Duration::from_secs(60));
         let rr = request_response::Behaviour::new(
             [(SENTRIX_PROTOCOL.to_string(), ProtocolSupport::Full)],
             rr_config,
         );
 
-        Self { identify, kademlia, gossipsub, rr }
+        Self {
+            identify,
+            kademlia,
+            gossipsub,
+            rr,
+        }
     }
 
     /// Create behaviour with a specific keypair for gossipsub message signing.
@@ -241,15 +276,15 @@ impl SentrixBehaviour {
         let local_public_key = keypair.public();
 
         // Identify
-        let identify = identify::Behaviour::new(
-            identify::Config::new(SENTRIX_PROTOCOL.to_string(), local_public_key),
-        );
+        let identify = identify::Behaviour::new(identify::Config::new(
+            SENTRIX_PROTOCOL.to_string(),
+            local_public_key,
+        ));
 
         // Kademlia DHT
         let store = kad::store::MemoryStore::new(local_peer_id);
-        let kad_protocol = libp2p::StreamProtocol::try_from_owned(
-            "/sentrix/kad/1.0.0".to_string(),
-        ).expect("valid protocol");
+        let kad_protocol = libp2p::StreamProtocol::try_from_owned("/sentrix/kad/1.0.0".to_string())
+            .expect("valid protocol");
         let mut kad_config = kad::Config::new(kad_protocol);
         kad_config.set_query_timeout(Duration::from_secs(30));
         let kademlia = kad::Behaviour::with_config(local_peer_id, store, kad_config);
@@ -264,22 +299,30 @@ impl SentrixBehaviour {
         let mut gossipsub = gossipsub::Behaviour::new(
             gossipsub::MessageAuthenticity::Signed(keypair.clone()),
             gossipsub_config,
-        ).expect("valid gossipsub behaviour");
+        )
+        .expect("valid gossipsub behaviour");
 
         let blocks_topic = gossipsub::IdentTopic::new(BLOCKS_TOPIC);
         let txs_topic = gossipsub::IdentTopic::new(TXS_TOPIC);
-        gossipsub.subscribe(&blocks_topic).expect("subscribe blocks");
+        gossipsub
+            .subscribe(&blocks_topic)
+            .expect("subscribe blocks");
         gossipsub.subscribe(&txs_topic).expect("subscribe txs");
 
         // Request-response
-        let rr_config = request_response::Config::default()
-            .with_request_timeout(Duration::from_secs(60));
+        let rr_config =
+            request_response::Config::default().with_request_timeout(Duration::from_secs(60));
         let rr = request_response::Behaviour::new(
             [(SENTRIX_PROTOCOL.to_string(), ProtocolSupport::Full)],
             rr_config,
         );
 
-        Self { identify, kademlia, gossipsub, rr }
+        Self {
+            identify,
+            kademlia,
+            gossipsub,
+            rr,
+        }
     }
 }
 
@@ -316,7 +359,9 @@ mod tests {
         let req = SentrixRequest::GetHeight;
         let mut buf = Vec::<u8>::new();
         let mut codec = SentrixCodec;
-        codec.write_request(&SENTRIX_PROTOCOL.to_string(), &mut buf, req.clone()).await
+        codec
+            .write_request(&SENTRIX_PROTOCOL.to_string(), &mut buf, req.clone())
+            .await
             .expect("write_request failed");
 
         let decoded: SentrixRequest = codec
@@ -337,7 +382,9 @@ mod tests {
         };
         let mut buf = Vec::<u8>::new();
         let mut codec = SentrixCodec;
-        codec.write_request(&SENTRIX_PROTOCOL.to_string(), &mut buf, req).await
+        codec
+            .write_request(&SENTRIX_PROTOCOL.to_string(), &mut buf, req)
+            .await
             .expect("write failed");
 
         let decoded = codec
@@ -346,7 +393,12 @@ mod tests {
             .expect("read failed");
 
         match decoded {
-            SentrixRequest::Handshake { height, chain_id, port, .. } => {
+            SentrixRequest::Handshake {
+                height,
+                chain_id,
+                port,
+                ..
+            } => {
                 assert_eq!(height, 42);
                 assert_eq!(chain_id, 7119);
                 assert_eq!(port, 30303);
@@ -360,7 +412,9 @@ mod tests {
         let res = SentrixResponse::BlocksResponse { blocks: vec![] };
         let mut buf = Vec::<u8>::new();
         let mut codec = SentrixCodec;
-        codec.write_response(&SENTRIX_PROTOCOL.to_string(), &mut buf, res).await
+        codec
+            .write_response(&SENTRIX_PROTOCOL.to_string(), &mut buf, res)
+            .await
             .expect("write failed");
 
         let decoded = codec
@@ -376,7 +430,9 @@ mod tests {
         let res = SentrixResponse::Pong { height: 100 };
         let mut buf = Vec::<u8>::new();
         let mut codec = SentrixCodec;
-        codec.write_response(&SENTRIX_PROTOCOL.to_string(), &mut buf, res).await
+        codec
+            .write_response(&SENTRIX_PROTOCOL.to_string(), &mut buf, res)
+            .await
             .expect("write failed");
 
         let decoded = codec
@@ -413,7 +469,8 @@ mod tests {
         assert!(
             bincode_bytes.len() < json_bytes.len(),
             "bincode ({} bytes) should be smaller than JSON ({} bytes)",
-            bincode_bytes.len(), json_bytes.len()
+            bincode_bytes.len(),
+            json_bytes.len()
         );
     }
 

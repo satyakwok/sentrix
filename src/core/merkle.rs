@@ -1,6 +1,6 @@
 // merkle.rs - Sentrix
 
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 pub fn merkle_root(txids: &[String]) -> String {
     if txids.is_empty() {
@@ -16,7 +16,8 @@ pub fn merkle_root(txids: &[String]) -> String {
     while level.len() > 1 {
         // Duplicate last element if odd count
         if !level.len().is_multiple_of(2)
-            && let Some(last) = level.last().cloned() {
+            && let Some(last) = level.last().cloned()
+        {
             level.push(last);
         }
 

@@ -1,8 +1,8 @@
 // trie/storage.rs - Sentrix — Persistent sled-backed trie storage
 
-use sled::{Db, Tree};
 use crate::core::trie::node::{NodeHash, TrieNode};
 use crate::types::error::{SentrixError, SentrixResult};
+use sled::{Db, Tree};
 
 /// Low-level persistent storage for trie nodes, values, and version→root mappings.
 ///
@@ -40,7 +40,12 @@ impl TrieStorage {
             .open_tree("trie_committed_roots")
             .map_err(|e| SentrixError::StorageError(e.to_string()))?;
 
-        let storage = Self { nodes, values, roots, committed_root_hashes };
+        let storage = Self {
+            nodes,
+            values,
+            roots,
+            committed_root_hashes,
+        };
 
         // One-time migration: backfill reverse index from trie_roots on first open.
         // Subsequent opens skip this via the sentinel "trie_committed_roots_ready" key.
@@ -53,7 +58,9 @@ impl TrieStorage {
     /// O(n_blocks) one-time cost on migration; O(1) fast-path on all subsequent opens.
     fn ensure_committed_roots_index(&self) -> SentrixResult<()> {
         // Fast path: sentinel present means the index is already complete.
-        if self.committed_root_hashes.contains_key(b"__ready__")
+        if self
+            .committed_root_hashes
+            .contains_key(b"__ready__")
             .map_err(|e| SentrixError::StorageError(e.to_string()))?
         {
             return Ok(());
@@ -156,7 +163,9 @@ impl TrieStorage {
             .map_err(|e| SentrixError::StorageError(e.to_string()))?;
         // Mark reverse index as complete once at least one root is written
         // (covers the case where ensure_committed_roots_index() ran on an empty DB).
-        if !self.committed_root_hashes.contains_key(b"__ready__")
+        if !self
+            .committed_root_hashes
+            .contains_key(b"__ready__")
             .unwrap_or(false)
         {
             let _ = self.committed_root_hashes.insert(b"__ready__", b"1");
@@ -295,7 +304,7 @@ mod tests {
 
     fn temp_storage() -> (tempfile::TempDir, TrieStorage) {
         let dir = tempfile::TempDir::new().unwrap();
-        let db  = sled::open(dir.path()).unwrap();
+        let db = sled::open(dir.path()).unwrap();
         let storage = TrieStorage::new(&db).unwrap();
         (dir, storage)
     }
@@ -321,7 +330,7 @@ mod tests {
     fn test_is_committed_root_false_for_unknown() {
         let (_dir, storage) = temp_storage();
         let committed = dummy_hash(0x10);
-        let other     = dummy_hash(0x20);
+        let other = dummy_hash(0x20);
         storage.store_root(1, &committed).unwrap();
         assert!(
             !storage.is_committed_root(&other).unwrap(),
@@ -348,36 +357,54 @@ mod tests {
     fn test_delete_node_removes_entry() {
         let (_dir, storage) = temp_storage();
         let hash = dummy_hash(0xAB);
-        let node = TrieNode::Leaf { key: [1u8; 32], value_hash: [2u8; 32] };
+        let node = TrieNode::Leaf {
+            key: [1u8; 32],
+            value_hash: [2u8; 32],
+        };
 
         storage.store_node(&hash, &node).unwrap();
-        assert!(storage.load_node(&hash).unwrap().is_some(), "node must exist after store");
+        assert!(
+            storage.load_node(&hash).unwrap().is_some(),
+            "node must exist after store"
+        );
 
         storage.delete_node(&hash).unwrap();
-        assert!(storage.load_node(&hash).unwrap().is_none(), "node must be absent after delete");
+        assert!(
+            storage.load_node(&hash).unwrap().is_none(),
+            "node must be absent after delete"
+        );
     }
 
     #[test]
     fn test_delete_value_removes_entry() {
         let (_dir, storage) = temp_storage();
         let hash = dummy_hash(0xCD);
-        let val  = b"balance_data";
+        let val = b"balance_data";
 
         storage.store_value(&hash, val).unwrap();
-        assert!(storage.load_value(&hash).unwrap().is_some(), "value must exist after store");
+        assert!(
+            storage.load_value(&hash).unwrap().is_some(),
+            "value must exist after store"
+        );
 
         storage.delete_value(&hash).unwrap();
-        assert!(storage.load_value(&hash).unwrap().is_none(), "value must be absent after delete");
+        assert!(
+            storage.load_value(&hash).unwrap().is_none(),
+            "value must be absent after delete"
+        );
     }
 
     #[test]
     fn test_gc_orphaned_nodes_removes_unlisted() {
         let (_dir, storage) = temp_storage();
-        let live_hash   = dummy_hash(0x01);
+        let live_hash = dummy_hash(0x01);
         let orphan_hash = dummy_hash(0x02);
 
-        let node = TrieNode::Leaf { key: [0u8; 32], value_hash: empty_hash(0) };
-        storage.store_node(&live_hash,   &node).unwrap();
+        let node = TrieNode::Leaf {
+            key: [0u8; 32],
+            value_hash: empty_hash(0),
+        };
+        storage.store_node(&live_hash, &node).unwrap();
         storage.store_node(&orphan_hash, &node).unwrap();
 
         let mut live: HashSet<NodeHash> = HashSet::new();
@@ -385,32 +412,47 @@ mod tests {
 
         let removed = storage.gc_orphaned_nodes(&live).unwrap();
         assert_eq!(removed, 1, "exactly one orphan must be removed");
-        assert!(storage.load_node(&live_hash).unwrap().is_some(),   "live node must survive GC");
-        assert!(storage.load_node(&orphan_hash).unwrap().is_none(), "orphan must be removed by GC");
+        assert!(
+            storage.load_node(&live_hash).unwrap().is_some(),
+            "live node must survive GC"
+        );
+        assert!(
+            storage.load_node(&orphan_hash).unwrap().is_none(),
+            "orphan must be removed by GC"
+        );
     }
 
     #[test]
     fn test_gc_empty_live_set_removes_all() {
         let (_dir, storage) = temp_storage();
-        let node = TrieNode::Leaf { key: [0u8; 32], value_hash: empty_hash(0) };
+        let node = TrieNode::Leaf {
+            key: [0u8; 32],
+            value_hash: empty_hash(0),
+        };
         for i in 0u8..5 {
             storage.store_node(&dummy_hash(i), &node).unwrap();
         }
         let removed = storage.gc_orphaned_nodes(&HashSet::new()).unwrap();
-        assert_eq!(removed, 5, "all 5 nodes must be removed when live set is empty");
+        assert_eq!(
+            removed, 5,
+            "all 5 nodes must be removed when live set is empty"
+        );
     }
 
     #[test]
     fn test_gc_also_removes_orphan_values() {
         let (_dir, storage) = temp_storage();
-        let live_hash   = dummy_hash(0x01);
+        let live_hash = dummy_hash(0x01);
         let orphan_hash = dummy_hash(0x02);
 
-        let node = TrieNode::Leaf { key: [0u8; 32], value_hash: empty_hash(0) };
-        storage.store_node(&live_hash,   &node).unwrap();
+        let node = TrieNode::Leaf {
+            key: [0u8; 32],
+            value_hash: empty_hash(0),
+        };
+        storage.store_node(&live_hash, &node).unwrap();
         storage.store_node(&orphan_hash, &node).unwrap();
         // Also store value blobs (as if delete() leaked them)
-        storage.store_value(&live_hash,   b"live_data").unwrap();
+        storage.store_value(&live_hash, b"live_data").unwrap();
         storage.store_value(&orphan_hash, b"orphan_data").unwrap();
 
         let mut live: std::collections::HashSet<NodeHash> = std::collections::HashSet::new();
@@ -418,9 +460,18 @@ mod tests {
 
         let removed = storage.gc_orphaned_nodes(&live).unwrap();
         // 1 orphan node + 1 orphan value = 2 removed
-        assert_eq!(removed, 2, "GC must remove both orphan node and orphan value");
-        assert!(storage.load_value(&live_hash).unwrap().is_some(),   "live value must survive GC");
-        assert!(storage.load_value(&orphan_hash).unwrap().is_none(), "orphan value must be removed");
+        assert_eq!(
+            removed, 2,
+            "GC must remove both orphan node and orphan value"
+        );
+        assert!(
+            storage.load_value(&live_hash).unwrap().is_some(),
+            "live value must survive GC"
+        );
+        assert!(
+            storage.load_value(&orphan_hash).unwrap().is_none(),
+            "orphan value must be removed"
+        );
     }
 
     // ── V10-C-02: is_committed_root O(1) reverse-index tests ─
@@ -432,7 +483,10 @@ mod tests {
         storage.store_root(7, &root).unwrap();
         // Reverse index must contain the root hash immediately after store_root()
         assert!(
-            storage.committed_root_hashes.contains_key(root.as_slice()).unwrap(),
+            storage
+                .committed_root_hashes
+                .contains_key(root.as_slice())
+                .unwrap(),
             "trie_committed_roots must contain the hash after store_root()"
         );
     }
@@ -447,7 +501,10 @@ mod tests {
         storage.store_root(2, &r2).unwrap();
         assert!(storage.is_committed_root(&r1).unwrap(), "r1 must be found");
         assert!(storage.is_committed_root(&r2).unwrap(), "r2 must be found");
-        assert!(!storage.is_committed_root(&r3).unwrap(), "r3 was never stored");
+        assert!(
+            !storage.is_committed_root(&r3).unwrap(),
+            "r3 was never stored"
+        );
     }
 
     #[test]
@@ -455,7 +512,7 @@ mod tests {
         // Simulate a pre-migration DB: write directly to trie_roots tree, bypassing store_root().
         // Then re-open via TrieStorage::new() and verify ensure_committed_roots_index() backfills.
         let dir = tempfile::TempDir::new().unwrap();
-        let db  = sled::open(dir.path()).unwrap();
+        let db = sled::open(dir.path()).unwrap();
 
         let root = dummy_hash(0xAA);
         // Write directly to trie_roots without using TrieStorage (simulates old data)
@@ -488,11 +545,23 @@ mod tests {
         let removed = storage.prune_old_roots(10, 3).unwrap();
         assert_eq!(removed, 7, "should remove versions 1-7");
         // Verify surviving roots
-        assert!(storage.load_root(8).unwrap().is_some(), "version 8 must survive");
-        assert!(storage.load_root(10).unwrap().is_some(), "version 10 must survive");
+        assert!(
+            storage.load_root(8).unwrap().is_some(),
+            "version 8 must survive"
+        );
+        assert!(
+            storage.load_root(10).unwrap().is_some(),
+            "version 10 must survive"
+        );
         // Verify pruned roots
-        assert!(storage.load_root(1).unwrap().is_none(), "version 1 must be pruned");
-        assert!(storage.load_root(7).unwrap().is_none(), "version 7 must be pruned");
+        assert!(
+            storage.load_root(1).unwrap().is_none(),
+            "version 1 must be pruned"
+        );
+        assert!(
+            storage.load_root(7).unwrap().is_none(),
+            "version 7 must be pruned"
+        );
     }
 
     #[test]

@@ -32,7 +32,9 @@ impl Blockchain {
         // Deduct fee: 50% burned, 50% to ecosystem fund
         if deploy_fee > 0 {
             let deployer_acc = self.accounts.get_or_create(deployer);
-            deployer_acc.balance = deployer_acc.balance.checked_sub(deploy_fee)
+            deployer_acc.balance = deployer_acc
+                .balance
+                .checked_sub(deploy_fee)
                 .ok_or_else(|| SentrixError::Internal("deploy fee underflow".to_string()))?;
 
             let burn_share = deploy_fee.div_ceil(2); // burn gets ceiling so no fee is lost to rounding
@@ -45,7 +47,15 @@ impl Blockchain {
         // Internal only — canonical on-chain path passes tx.txid through add_block for deterministic addressing
         let nonce = self.accounts.get_nonce(deployer);
         let seed = format!("{}|{}|{}", deployer, nonce, name);
-        let contract_address = self.contracts.deploy(deployer, &name, &symbol, decimals, total_supply, max_supply, &seed)?;
+        let contract_address = self.contracts.deploy(
+            deployer,
+            &name,
+            &symbol,
+            decimals,
+            total_supply,
+            max_supply,
+            &seed,
+        )?;
         Ok(contract_address)
     }
 
@@ -71,14 +81,17 @@ impl Blockchain {
         // Deduct gas: 50% burned, 50% to current validator (or ecosystem fund)
         if gas_fee > 0 {
             let caller_acc = self.accounts.get_or_create(caller);
-            caller_acc.balance = caller_acc.balance.checked_sub(gas_fee)
+            caller_acc.balance = caller_acc
+                .balance
+                .checked_sub(gas_fee)
                 .ok_or_else(|| SentrixError::Internal("gas fee underflow".to_string()))?;
 
             let burn_share = gas_fee.div_ceil(2); // burn gets ceiling so no fee is lost to rounding
             let val_share = gas_fee - burn_share;
             self.accounts.total_burned += burn_share;
 
-            let validator_addr = self.authority
+            let validator_addr = self
+                .authority
                 .expected_validator(self.height() + 1)
                 .map(|v| v.address.clone())
                 .unwrap_or_else(|_| ECOSYSTEM_FUND_ADDRESS.to_string());
@@ -86,7 +99,9 @@ impl Blockchain {
         }
 
         // Execute token transfer
-        let contract = self.contracts.get_contract_mut(contract_address)
+        let contract = self
+            .contracts
+            .get_contract_mut(contract_address)
             .ok_or_else(|| SentrixError::NotFound(format!("contract {}", contract_address)))?;
         contract.transfer(caller, to, amount)?;
         Ok(())
@@ -113,14 +128,17 @@ impl Blockchain {
         // Deduct gas: 50% burned, 50% to validator
         if gas_fee > 0 {
             let caller_acc = self.accounts.get_or_create(caller);
-            caller_acc.balance = caller_acc.balance.checked_sub(gas_fee)
+            caller_acc.balance = caller_acc
+                .balance
+                .checked_sub(gas_fee)
                 .ok_or_else(|| SentrixError::Internal("gas fee underflow".to_string()))?;
 
             let burn_share = gas_fee.div_ceil(2); // burn gets ceiling so no fee is lost to rounding
             let val_share = gas_fee - burn_share;
             self.accounts.total_burned += burn_share;
 
-            let validator_addr = self.authority
+            let validator_addr = self
+                .authority
                 .expected_validator(self.height() + 1)
                 .map(|v| v.address.clone())
                 .unwrap_or_else(|_| ECOSYSTEM_FUND_ADDRESS.to_string());
@@ -128,20 +146,25 @@ impl Blockchain {
         }
 
         // Execute token burn
-        let contract = self.contracts.get_contract_mut(contract_address)
+        let contract = self
+            .contracts
+            .get_contract_mut(contract_address)
             .ok_or_else(|| SentrixError::NotFound(format!("contract {}", contract_address)))?;
         contract.burn(caller, amount)?;
         Ok(())
     }
 
     pub fn token_balance(&self, contract_address: &str, address: &str) -> u64 {
-        self.contracts.get_contract(contract_address)
+        self.contracts
+            .get_contract(contract_address)
             .map(|c| c.balance_of(address))
             .unwrap_or(0)
     }
 
     pub fn token_info(&self, contract_address: &str) -> SentrixResult<serde_json::Value> {
-        let contract = self.contracts.get_contract(contract_address)
+        let contract = self
+            .contracts
+            .get_contract(contract_address)
             .ok_or_else(|| SentrixError::NotFound(format!("contract {}", contract_address)))?;
         Ok(contract.get_info())
     }
@@ -158,7 +181,8 @@ mod tests {
 
     fn setup() -> Blockchain {
         let mut bc = Blockchain::new("admin".to_string());
-        bc.authority.add_validator_unchecked("v1".to_string(), "V1".to_string(), "pk1".to_string());
+        bc.authority
+            .add_validator_unchecked("v1".to_string(), "V1".to_string(), "pk1".to_string());
         bc
     }
 
@@ -171,12 +195,25 @@ mod tests {
         bc.accounts.credit(deployer, deploy_fee).unwrap();
 
         let burned_before = bc.accounts.total_burned;
-        let eco_before = bc.accounts.get_balance(crate::core::blockchain::ECOSYSTEM_FUND_ADDRESS);
+        let eco_before = bc
+            .accounts
+            .get_balance(crate::core::blockchain::ECOSYSTEM_FUND_ADDRESS);
 
-        bc.deploy_token(deployer, "Foo".to_string(), "FOO".to_string(), 8, 1_000, 0, deploy_fee).unwrap();
+        bc.deploy_token(
+            deployer,
+            "Foo".to_string(),
+            "FOO".to_string(),
+            8,
+            1_000,
+            0,
+            deploy_fee,
+        )
+        .unwrap();
 
         let burned_after = bc.accounts.total_burned;
-        let eco_after = bc.accounts.get_balance(crate::core::blockchain::ECOSYSTEM_FUND_ADDRESS);
+        let eco_after = bc
+            .accounts
+            .get_balance(crate::core::blockchain::ECOSYSTEM_FUND_ADDRESS);
 
         // burn_share = ceil(fee/2), eco_share = fee - burn_share
         let expected_burn = deploy_fee.div_ceil(2);
@@ -197,7 +234,10 @@ mod tests {
     #[test]
     fn test_token_balance_unknown_contract_returns_zero() {
         let bc = setup();
-        let balance = bc.token_balance("SRX20_nonexistent", "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+        let balance = bc.token_balance(
+            "SRX20_nonexistent",
+            "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        );
         assert_eq!(balance, 0);
     }
 }

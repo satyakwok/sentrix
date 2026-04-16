@@ -10,7 +10,58 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Planned
-- Voyager: EVM integration via revm (Phase 2b)
+- Mainnet hard fork to Voyager (DPoS + BFT + EVM)
+- Workspace split into per-crate modules
+- Light client justification verification
+
+---
+
+## [1.2.0] — 2026-04-16
+
+Voyager EVM (Phase 2b). Full Ethereum compatibility.
+
+### Added
+- **EVM execution via revm 37** — Solidity smart contract deployment and execution
+- **eth_sendRawTransaction** — full Ethereum tx support (legacy + EIP-1559 + EIP-2930 + EIP-4844 + EIP-7702)
+- **alloy-consensus / alloy-eips / alloy-rlp** dependencies for Ethereum tx decoding + signature recovery
+- **eth_call** — read-only EVM execution with disabled balance/nonce/basefee checks
+- **eth_getCode / eth_getStorageAt** — query deployed contract bytecode and storage slots
+- **eth_estimateGas / eth_chainId / eth_blockNumber / eth_gasPrice** — full Web3 RPC surface
+- **EVM database adapter** (`SentrixEvmDb`) bridging revm to AccountDB / contract storage
+- **Account model migration** — `code_hash` and `storage_root` fields added with backward-compatible serde defaults
+- **Account `is_contract()`** helper + `migrate_to_evm()` one-time fork migration
+- **EIP-1559 gas metering** — base fee 10K sentri, target 15M, block limit 30M
+- **Precompile addresses** defined: 0x100 staking, 0x101 slashing
+- **VOYAGER_EVM_HEIGHT** env var (default `u64::MAX` = disabled)
+- **`activate_evm()`** wired in main validator loop at fork height
+- **BFT round catch-up protocol** — `RoundStatus` gossip lets returning validators learn current (height, round)
+- **BFT propose-after-advance-round** — validator that becomes proposer after timeout/skip immediately proposes block
+- **Multi-validator BFT testnet** (4 validators on VPS3) with 3/4 fault tolerance
+- **Wallet encryption CLI** — `wallet encrypt`/`decrypt`, `--validator-keystore`, password from env or prompt
+- **CI/CD rolling restart** — validators restarted one at a time during deploys; chain never stops producing blocks
+- **CI/CD covers testnet validators** — `sentrix-testnet-val1..4` services auto-updated
+- **Robust health check** — 5 retries × 60s windows with cluster-max delta tolerance
+- **testnet-scan / testnet-explorer** subdomains added to nginx
+- **Single nginx server block** consolidates all 4 testnet subdomains; fixes MetaMask `/rpc` path bug
+- **Per-IP rate limiter** bumped to 20 connections (handles VPS2 hosting 5 validators on one IP)
+- **SRC-20 token standard** verified with deployed test contract
+- **TPS benchmark scripts** (Python) for testnet load testing
+- 525+ tests, clippy clean, cargo fmt applied repo-wide
+
+### Changed
+- **SHA-256 weighted proposer** — replaces old `(height*31+round)*7` selector that always picked first validator with equal stakes
+- **Account struct** extended with `code_hash` (`EMPTY_CODE_HASH` for EOA) and `storage_root` (`EMPTY_STORAGE_ROOT` for EOA)
+- **eth_chainId / net_version** now read actual chain_id (was hardcoded to 7119)
+- **axum 0.8** route syntax migration (`/:param` → `/{param}`) — production-critical fix
+- **libp2p 0.54 → 0.56** — adapted `RrEvent` patterns for new `connection_id` field
+- **revm features:** added `optional_balance_check` + `optional_no_base_fee` for read-only `execute_call()`
+- **rustls-webpki** updated to 0.103.12 (closes RUSTSEC-2026-0098/0099)
+
+### Fixed
+- **BFT SkipRound** now calls `advance_round()` instead of resetting engine to round 0 — fixes endless desync loop
+- **Mempool zero-address guard** allows EVM CREATE txs (to=0x0)
+- **Block_executor** routes EVM txs through revm + stores runtime bytecode (not init bytecode) on CREATE
+- **Chain.db corruption** workaround documented (`sentrix chain reset-trie` rebuilds from canonical AccountDB)
 
 ---
 
@@ -185,7 +236,8 @@ Pioneer release. PoA chain live with 7 validators across 3 VPS, 141K+ blocks, 11
 
 ---
 
-[Unreleased]: https://github.com/satyakwok/sentrix/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/satyakwok/sentrix/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/satyakwok/sentrix/releases/tag/v1.2.0
 [1.1.0]: https://github.com/satyakwok/sentrix/releases/tag/v1.1.0
 [1.0.0]: https://github.com/satyakwok/sentrix/releases/tag/v1.0.0
 [0.1.0]: https://github.com/satyakwok/sentrix/releases/tag/v0.1.0

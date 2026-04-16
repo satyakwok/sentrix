@@ -1,11 +1,11 @@
 // block_executor.rs - Sentrix — Block validation and commit (two-pass)
 
-use hex;
-use std::collections::{HashMap, HashSet};
-use crate::core::blockchain::{Blockchain, CHAIN_WINDOW_SIZE, is_valid_sentrix_address};
 use crate::core::block::{Block, STATE_ROOT_FORK_HEIGHT};
+use crate::core::blockchain::{Blockchain, CHAIN_WINDOW_SIZE, is_valid_sentrix_address};
 use crate::core::transaction::TokenOp;
 use crate::types::error::{SentrixError, SentrixResult};
+use hex;
+use std::collections::{HashMap, HashSet};
 
 impl Blockchain {
     // ── Block application (two-pass atomic) ─────────────
@@ -19,11 +19,14 @@ impl Blockchain {
         // Pioneer: round-robin PoA authority check.
         // Voyager: proposer selected by DPoS + BFT justification — skip Pioneer authority.
         if !Blockchain::is_voyager_height(expected_index)
-            && !self.authority.is_authorized(&block.validator, expected_index)?
+            && !self
+                .authority
+                .is_authorized(&block.validator, expected_index)?
         {
-            return Err(SentrixError::UnauthorizedValidator(
-                format!("validator {} not authorized for block {}", block.validator, expected_index)
-            ));
+            return Err(SentrixError::UnauthorizedValidator(format!(
+                "validator {} not authorized for block {}",
+                block.validator, expected_index
+            )));
         }
 
         // Block timestamp must be ≥ previous block and within 15s of wall time
@@ -34,23 +37,25 @@ impl Blockchain {
             .as_secs();
         if block.timestamp < prev_timestamp {
             return Err(SentrixError::InvalidBlock(
-                "block timestamp is before previous block".to_string()
+                "block timestamp is before previous block".to_string(),
             ));
         }
         if block.timestamp > now + 15 {
             return Err(SentrixError::InvalidBlock(
-                "block timestamp too far in the future".to_string()
+                "block timestamp too far in the future".to_string(),
             ));
         }
 
         // Validate coinbase amount
         let reward = self.get_block_reward();
-        let coinbase = block.coinbase()
+        let coinbase = block
+            .coinbase()
             .ok_or_else(|| SentrixError::InvalidBlock("missing coinbase".to_string()))?;
         if coinbase.amount > reward {
-            return Err(SentrixError::InvalidBlock(
-                format!("coinbase {} exceeds reward {}", coinbase.amount, reward)
-            ));
+            return Err(SentrixError::InvalidBlock(format!(
+                "coinbase {} exceeds reward {}",
+                coinbase.amount, reward
+            )));
         }
 
         // Validate all non-coinbase transactions on working state copy
@@ -74,10 +79,9 @@ impl Blockchain {
             tx.validate(nonce, self.chain_id)?;
 
             // Checked addition prevents integer overflow on amount + fee
-            let needed = tx.amount.checked_add(tx.fee)
-                .ok_or_else(|| SentrixError::InvalidTransaction(
-                    "amount + fee overflow".to_string()
-                ))?;
+            let needed = tx.amount.checked_add(tx.fee).ok_or_else(|| {
+                SentrixError::InvalidTransaction("amount + fee overflow".to_string())
+            })?;
             if balance < needed {
                 return Err(SentrixError::InsufficientBalance {
                     have: balance,
@@ -88,58 +92,79 @@ impl Blockchain {
             // Validate token operation if present
             if let Some(token_op) = TokenOp::decode(&tx.data) {
                 match &token_op {
-                    TokenOp::Transfer { contract, to, amount } => {
+                    TokenOp::Transfer {
+                        contract,
+                        to,
+                        amount,
+                    } => {
                         if !self.contracts.exists(contract) {
-                            return Err(SentrixError::InvalidTransaction(
-                                format!("token contract {} not found", contract)
-                            ));
+                            return Err(SentrixError::InvalidTransaction(format!(
+                                "token contract {} not found",
+                                contract
+                            )));
                         }
                         // Validate token transfer target is a well-formed Sentrix address
                         if !is_valid_sentrix_address(to) {
-                            return Err(SentrixError::InvalidTransaction(
-                                format!("invalid token transfer target address: '{}'", to)
-                            ));
+                            return Err(SentrixError::InvalidTransaction(format!(
+                                "invalid token transfer target address: '{}'",
+                                to
+                            )));
                         }
-                        let token_bal = self.contracts.get_token_balance(contract, &tx.from_address);
+                        let token_bal =
+                            self.contracts.get_token_balance(contract, &tx.from_address);
                         if token_bal < *amount {
-                            return Err(SentrixError::InsufficientBalance { have: token_bal, need: *amount });
+                            return Err(SentrixError::InsufficientBalance {
+                                have: token_bal,
+                                need: *amount,
+                            });
                         }
                     }
                     TokenOp::Burn { contract, amount } => {
                         if !self.contracts.exists(contract) {
-                            return Err(SentrixError::InvalidTransaction(
-                                format!("token contract {} not found", contract)
-                            ));
+                            return Err(SentrixError::InvalidTransaction(format!(
+                                "token contract {} not found",
+                                contract
+                            )));
                         }
-                        let token_bal = self.contracts.get_token_balance(contract, &tx.from_address);
+                        let token_bal =
+                            self.contracts.get_token_balance(contract, &tx.from_address);
                         if token_bal < *amount {
-                            return Err(SentrixError::InsufficientBalance { have: token_bal, need: *amount });
+                            return Err(SentrixError::InsufficientBalance {
+                                have: token_bal,
+                                need: *amount,
+                            });
                         }
                     }
                     TokenOp::Mint { contract, to, .. } => {
                         if !self.contracts.exists(contract) {
-                            return Err(SentrixError::InvalidTransaction(
-                                format!("token contract {} not found", contract)
-                            ));
+                            return Err(SentrixError::InvalidTransaction(format!(
+                                "token contract {} not found",
+                                contract
+                            )));
                         }
                         // Validate token mint target is a well-formed Sentrix address
                         if !is_valid_sentrix_address(to) {
-                            return Err(SentrixError::InvalidTransaction(
-                                format!("invalid token mint target address: '{}'", to)
-                            ));
+                            return Err(SentrixError::InvalidTransaction(format!(
+                                "invalid token mint target address: '{}'",
+                                to
+                            )));
                         }
                     }
-                    TokenOp::Approve { contract, spender, .. } => {
+                    TokenOp::Approve {
+                        contract, spender, ..
+                    } => {
                         if !self.contracts.exists(contract) {
-                            return Err(SentrixError::InvalidTransaction(
-                                format!("token contract {} not found", contract)
-                            ));
+                            return Err(SentrixError::InvalidTransaction(format!(
+                                "token contract {} not found",
+                                contract
+                            )));
                         }
                         // Validate spender is a well-formed Sentrix address before recording allowance
                         if !is_valid_sentrix_address(spender) {
-                            return Err(SentrixError::InvalidTransaction(
-                                format!("invalid token approve spender address: '{}'", spender)
-                            ));
+                            return Err(SentrixError::InvalidTransaction(format!(
+                                "invalid token approve spender address: '{}'",
+                                spender
+                            )));
                         }
                     }
                     TokenOp::Deploy { name, symbol, .. } => {
@@ -149,9 +174,13 @@ impl Blockchain {
                                 "token name must be 1–64 characters".to_string(),
                             ));
                         }
-                        if symbol.is_empty() || symbol.len() > 10 || !symbol.chars().all(|c| c.is_ascii_alphanumeric()) {
+                        if symbol.is_empty()
+                            || symbol.len() > 10
+                            || !symbol.chars().all(|c| c.is_ascii_alphanumeric())
+                        {
                             return Err(SentrixError::InvalidTransaction(
-                                "token symbol must be 1–10 ASCII alphanumeric characters".to_string(),
+                                "token symbol must be 1–10 ASCII alphanumeric characters"
+                                    .to_string(),
                             ));
                         }
                     }
@@ -159,8 +188,12 @@ impl Blockchain {
             }
 
             // Update working state
-            *working_balances.entry(tx.from_address.clone()).or_insert(balance) -= needed;
-            *working_nonces.entry(tx.from_address.clone()).or_insert(nonce) += 1;
+            *working_balances
+                .entry(tx.from_address.clone())
+                .or_insert(balance) -= needed;
+            *working_nonces
+                .entry(tx.from_address.clone())
+                .or_insert(nonce) += 1;
         }
 
         // ── Pass 2: commit ───────────────────────────────
@@ -171,32 +204,66 @@ impl Blockchain {
         // Apply all transactions
         let mut total_fee: u64 = 0;
         for tx in block.transactions.iter().skip(1) {
-            self.accounts.transfer(
-                &tx.from_address,
-                &tx.to_address,
-                tx.amount,
-                tx.fee,
-            )?;
+            self.accounts
+                .transfer(&tx.from_address, &tx.to_address, tx.amount, tx.fee)?;
             total_fee += tx.fee;
 
             // Execute token operation if present in data field
             if let Some(token_op) = TokenOp::decode(&tx.data) {
                 match token_op {
-                    TokenOp::Deploy { name, symbol, decimals, supply, max_supply } => {
+                    TokenOp::Deploy {
+                        name,
+                        symbol,
+                        decimals,
+                        supply,
+                        max_supply,
+                    } => {
                         // Contract address derived from tx.txid — deterministic across all nodes for the same transaction
-                        self.contracts.deploy(&tx.from_address, &name, &symbol, decimals, supply, max_supply, &tx.txid)?;
+                        self.contracts.deploy(
+                            &tx.from_address,
+                            &name,
+                            &symbol,
+                            decimals,
+                            supply,
+                            max_supply,
+                            &tx.txid,
+                        )?;
                     }
-                    TokenOp::Transfer { contract, to, amount } => {
-                        self.contracts.execute_transfer(&contract, &tx.from_address, &to, amount)?;
+                    TokenOp::Transfer {
+                        contract,
+                        to,
+                        amount,
+                    } => {
+                        self.contracts.execute_transfer(
+                            &contract,
+                            &tx.from_address,
+                            &to,
+                            amount,
+                        )?;
                     }
                     TokenOp::Burn { contract, amount } => {
-                        self.contracts.execute_burn(&contract, &tx.from_address, amount)?;
+                        self.contracts
+                            .execute_burn(&contract, &tx.from_address, amount)?;
                     }
-                    TokenOp::Mint { contract, to, amount } => {
-                        self.contracts.execute_mint(&contract, &tx.from_address, &to, amount)?;
+                    TokenOp::Mint {
+                        contract,
+                        to,
+                        amount,
+                    } => {
+                        self.contracts
+                            .execute_mint(&contract, &tx.from_address, &to, amount)?;
                     }
-                    TokenOp::Approve { contract, spender, amount } => {
-                        self.contracts.execute_approve(&contract, &tx.from_address, &spender, amount)?;
+                    TokenOp::Approve {
+                        contract,
+                        spender,
+                        amount,
+                    } => {
+                        self.contracts.execute_approve(
+                            &contract,
+                            &tx.from_address,
+                            &spender,
+                            amount,
+                        )?;
                     }
                 }
             }
@@ -211,14 +278,17 @@ impl Blockchain {
         let burn_fee_share = total_fee.div_ceil(2);
         let validator_fee_share = total_fee - burn_fee_share;
         if validator_fee_share > 0 {
-            self.accounts.credit(&block.validator, validator_fee_share)?;
+            self.accounts
+                .credit(&block.validator, validator_fee_share)?;
         }
 
         // Record validator stats
-        self.authority.record_block_produced(&block.validator, block.timestamp);
+        self.authority
+            .record_block_produced(&block.validator, block.timestamp);
 
         // Remove mined transactions from mempool
-        let mined_txids: HashSet<String> = block.transactions
+        let mined_txids: HashSet<String> = block
+            .transactions
             .iter()
             .map(|tx| tx.txid.clone())
             .collect();
@@ -239,10 +309,13 @@ impl Blockchain {
 
         // Update state trie after block commit, stamp state_root on the block header,
         // and verify the sender's committed root when receiving from peers.
-        let trie_root = self.update_trie_for_block()
-            .map_err(|e| SentrixError::Internal(
-                format!("trie update failed at block {}: {}", self.height(), e)
-            ))?;
+        let trie_root = self.update_trie_for_block().map_err(|e| {
+            SentrixError::Internal(format!(
+                "trie update failed at block {}: {}",
+                self.height(),
+                e
+            ))
+        })?;
 
         if let Some(computed_root) = trie_root
             && let Some(last) = self.chain.last_mut()
@@ -259,14 +332,12 @@ impl Blockchain {
                         // Received block: verify peer's state_root matches ours (V7-C-01).
                         // State root mismatch is fatal — reject the block to prevent accepting a diverged chain state
                         if received_root != computed_root {
-                            return Err(SentrixError::ChainValidationFailed(
-                                format!(
-                                    "state_root mismatch at block {}: received {}, computed {}",
-                                    last.index,
-                                    hex::encode(received_root),
-                                    hex::encode(computed_root),
-                                )
-                            ));
+                            return Err(SentrixError::ChainValidationFailed(format!(
+                                "state_root mismatch at block {}: received {}, computed {}",
+                                last.index,
+                                hex::encode(received_root),
+                                hex::encode(computed_root),
+                            )));
                         }
                         last.state_root = Some(computed_root);
                     }
@@ -283,7 +354,10 @@ impl Blockchain {
     /// Execute an EVM transaction (from eth_sendRawTransaction) within a block.
     /// Decodes the original RLP tx from the signature field, runs it through revm,
     /// applies state changes (contract creation, storage updates, balance transfers).
-    fn execute_evm_tx_in_block(&mut self, tx: &crate::core::transaction::Transaction) -> SentrixResult<()> {
+    fn execute_evm_tx_in_block(
+        &mut self,
+        tx: &crate::core::transaction::Transaction,
+    ) -> SentrixResult<()> {
         // Parse "EVM:gas_limit:hex_data" from data field
         let parts: Vec<&str> = tx.data.splitn(3, ':').collect();
         if parts.len() != 3 || parts[0] != "EVM" {
@@ -309,17 +383,17 @@ impl Blockchain {
         let _sender = envelope.recover_signer().ok();
 
         // Build EVM tx
-        use alloy_primitives::U256;
-        use revm::context::TxEnv;
-        use revm::database::InMemoryDB;
-        use revm::state::AccountInfo;
-        use revm::primitives::{TxKind, KECCAK_EMPTY};
         use crate::core::evm::database::parse_sentrix_address;
         use crate::core::evm::executor::execute_tx;
         use crate::core::evm::gas::INITIAL_BASE_FEE;
+        use alloy_primitives::U256;
+        use revm::context::TxEnv;
+        use revm::database::InMemoryDB;
+        use revm::primitives::{KECCAK_EMPTY, TxKind};
+        use revm::state::AccountInfo;
 
-        let from_addr = parse_sentrix_address(&tx.from_address)
-            .unwrap_or(alloy_primitives::Address::ZERO);
+        let from_addr =
+            parse_sentrix_address(&tx.from_address).unwrap_or(alloy_primitives::Address::ZERO);
         let to_addr_str = if tx.to_address == crate::core::transaction::TOKEN_OP_ADDRESS {
             None
         } else {
@@ -363,7 +437,9 @@ impl Blockchain {
                     &tx.txid[..16.min(tx.txid.len())],
                     receipt.success,
                     receipt.gas_used,
-                    receipt.contract_address.map(|a| format!("0x{}", hex::encode(a.as_slice()))),
+                    receipt
+                        .contract_address
+                        .map(|a| format!("0x{}", hex::encode(a.as_slice()))),
                 );
                 // Store contract RUNTIME code (not init code) if CREATE succeeded.
                 // receipt.output contains the runtime bytecode returned by the constructor.
@@ -371,10 +447,11 @@ impl Blockchain {
                     && !receipt.output.is_empty()
                 {
                     let addr_str = format!("0x{}", hex::encode(contract_addr.as_slice()));
-                    use sha3::{Keccak256, Digest as _};
+                    use sha3::{Digest as _, Keccak256};
                     let code_hash: [u8; 32] = Keccak256::digest(&receipt.output).into();
                     let code_hash_hex = hex::encode(code_hash);
-                    self.accounts.store_contract_code(&code_hash_hex, receipt.output.clone());
+                    self.accounts
+                        .store_contract_code(&code_hash_hex, receipt.output.clone());
                     self.accounts.set_contract(&addr_str, code_hash);
                 }
             }
@@ -389,10 +466,10 @@ impl Blockchain {
 // ── Tests ─────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
-    use secp256k1::{Secp256k1, SecretKey, PublicKey};
-    use secp256k1::rand::rngs::OsRng;
-    use crate::core::transaction::{Transaction, MIN_TX_FEE, TOKEN_OP_ADDRESS, TokenOp};
     use crate::core::blockchain::{Blockchain, CHAIN_ID};
+    use crate::core::transaction::{MIN_TX_FEE, TOKEN_OP_ADDRESS, TokenOp, Transaction};
+    use secp256k1::rand::rngs::OsRng;
+    use secp256k1::{PublicKey, Secp256k1, SecretKey};
 
     fn make_keypair() -> (SecretKey, PublicKey) {
         let secp = Secp256k1::new();
@@ -405,7 +482,8 @@ mod tests {
 
     fn setup() -> Blockchain {
         let mut bc = Blockchain::new("admin".to_string());
-        bc.authority.add_validator_unchecked("v1".to_string(), "V1".to_string(), "pk1".to_string());
+        bc.authority
+            .add_validator_unchecked("v1".to_string(), "V1".to_string(), "pk1".to_string());
         bc
     }
 
@@ -440,14 +518,25 @@ mod tests {
         bc2.accounts.credit(&sender, fund).unwrap();
 
         let token_op = TokenOp::Deploy {
-            name: "TestToken".to_string(), symbol: "TTK".to_string(),
-            decimals: 8, supply: 1_000_000, max_supply: 0,
+            name: "TestToken".to_string(),
+            symbol: "TTK".to_string(),
+            decimals: 8,
+            supply: 1_000_000,
+            max_supply: 0,
         };
         let data = token_op.encode().unwrap();
         let tx = Transaction::new(
-            sender.clone(), TOKEN_OP_ADDRESS.to_string(),
-            0, MIN_TX_FEE, 0, data, CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            sender.clone(),
+            TOKEN_OP_ADDRESS.to_string(),
+            0,
+            MIN_TX_FEE,
+            0,
+            data,
+            CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
 
         // Add the SAME tx to both chains and produce blocks
         bc1.add_to_mempool(tx.clone()).unwrap();
@@ -463,10 +552,13 @@ mod tests {
         // Contract registry should have identical addresses
         let tokens1 = bc1.list_tokens();
         let tokens2 = bc2.list_tokens();
-        assert_eq!(tokens1.len(), tokens2.len(), "both chains should have same number of tokens");
         assert_eq!(
-            tokens1[0]["contract_address"],
-            tokens2[0]["contract_address"],
+            tokens1.len(),
+            tokens2.len(),
+            "both chains should have same number of tokens"
+        );
+        assert_eq!(
+            tokens1[0]["contract_address"], tokens2[0]["contract_address"],
             "V6-C-01: contract address must be deterministic across nodes"
         );
     }
@@ -487,7 +579,10 @@ mod tests {
         // Blocks below STATE_ROOT_FORK_HEIGHT: state_root set but hash unchanged.
         use crate::core::block::STATE_ROOT_FORK_HEIGHT;
         let mut bc = setup();
-        assert!(bc.height() + 1 < STATE_ROOT_FORK_HEIGHT, "test assumes height < fork");
+        assert!(
+            bc.height() + 1 < STATE_ROOT_FORK_HEIGHT,
+            "test assumes height < fork"
+        );
 
         // Init an in-memory trie (no sled — state_trie will be None without db)
         // Without trie init, update_trie_for_block returns Ok(None) → state_root remains None
@@ -498,7 +593,10 @@ mod tests {
         let added = bc.chain.last().unwrap();
         assert!(added.index < STATE_ROOT_FORK_HEIGHT);
         // No trie initialized → state_root is None; hash must be unchanged
-        assert_eq!(added.hash, original_hash, "block hash must not change without trie");
+        assert_eq!(
+            added.hash, original_hash,
+            "block hash must not change without trie"
+        );
     }
 
     #[test]
@@ -507,6 +605,9 @@ mod tests {
         let mut bc = setup();
         // state_trie is None (no init_trie called) — should be fine
         let block = bc.create_block("v1").unwrap();
-        assert!(bc.add_block(block).is_ok(), "add_block must succeed without trie");
+        assert!(
+            bc.add_block(block).is_ok(),
+            "add_block must succeed without trie"
+        );
     }
 }

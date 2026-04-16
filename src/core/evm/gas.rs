@@ -32,20 +32,16 @@ pub fn next_base_fee(parent_base_fee: u64, parent_gas_used: u64) -> u64 {
     if parent_gas_used > GAS_TARGET {
         // Increase: delta = parent_base_fee * (gas_used - target) / target / denominator
         let excess = parent_gas_used.saturating_sub(GAS_TARGET);
-        let delta = parent_base_fee
-            .saturating_mul(excess)
-            / GAS_TARGET
-            / BASE_FEE_CHANGE_DENOMINATOR;
+        let delta =
+            parent_base_fee.saturating_mul(excess) / GAS_TARGET / BASE_FEE_CHANGE_DENOMINATOR;
         // At least 1 sentri increase to ensure convergence
         let delta = delta.max(1);
         parent_base_fee.saturating_add(delta)
     } else {
         // Decrease: delta = parent_base_fee * (target - gas_used) / target / denominator
         let deficit = GAS_TARGET.saturating_sub(parent_gas_used);
-        let delta = parent_base_fee
-            .saturating_mul(deficit)
-            / GAS_TARGET
-            / BASE_FEE_CHANGE_DENOMINATOR;
+        let delta =
+            parent_base_fee.saturating_mul(deficit) / GAS_TARGET / BASE_FEE_CHANGE_DENOMINATOR;
         parent_base_fee.saturating_sub(delta).max(MIN_BASE_FEE)
     }
 }

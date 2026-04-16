@@ -3,9 +3,9 @@
 // Manages validator stakes, delegations, unbonding, rewards, and commission.
 // Replaces AuthorityManager for blocks >= VOYAGER_DPOS_HEIGHT.
 
+use crate::types::error::{SentrixError, SentrixResult};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
-use crate::types::error::{SentrixError, SentrixResult};
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -16,7 +16,7 @@ pub const UNBONDING_PERIOD: u64 = 201_600; // 7 days at 3s blocks
 pub const MAX_DELEGATIONS_PER_ACCOUNT: usize = 10;
 pub const MAX_UNBONDING_ENTRIES: usize = 7;
 pub const REDELEGATE_COOLDOWN: u64 = 201_600; // 7 days
-pub const MIN_COMMISSION: u16 = 500;  // 5% in basis points
+pub const MIN_COMMISSION: u16 = 500; // 5% in basis points
 pub const MAX_COMMISSION: u16 = 2000; // 20%
 pub const MAX_COMMISSION_CHANGE_PER_EPOCH: u16 = 200; // 2%
 
@@ -30,11 +30,11 @@ pub struct ValidatorStake {
     pub commission_rate: u16,     // basis points (500 = 5%)
     pub max_commission_rate: u16, // set at registration, immutable
     pub is_jailed: bool,
-    pub jail_until: u64,          // block height, 0 = not jailed
-    pub is_tombstoned: bool,      // permanent ban (double-sign)
+    pub jail_until: u64,     // block height, 0 = not jailed
+    pub is_tombstoned: bool, // permanent ban (double-sign)
     pub blocks_signed: u64,
     pub blocks_missed: u64,
-    pub pending_rewards: u64,     // accumulated, unclaimed
+    pub pending_rewards: u64, // accumulated, unclaimed
     pub registration_height: u64,
 }
 
@@ -104,25 +104,22 @@ impl StakeRegistry {
             ));
         }
         if self.validators.len() >= MAX_CANDIDATES {
-            return Err(SentrixError::InvalidTransaction(
-                format!("max {} validator candidates reached", MAX_CANDIDATES),
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "max {} validator candidates reached",
+                MAX_CANDIDATES
+            )));
         }
         if self_stake < MIN_SELF_STAKE {
-            return Err(SentrixError::InvalidTransaction(
-                format!(
-                    "self-stake {} below minimum {}",
-                    self_stake, MIN_SELF_STAKE
-                ),
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "self-stake {} below minimum {}",
+                self_stake, MIN_SELF_STAKE
+            )));
         }
         if !(MIN_COMMISSION..=MAX_COMMISSION).contains(&commission_rate) {
-            return Err(SentrixError::InvalidTransaction(
-                format!(
-                    "commission {} out of range [{}, {}]",
-                    commission_rate, MIN_COMMISSION, MAX_COMMISSION
-                ),
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "commission {} out of range [{}, {}]",
+                commission_rate, MIN_COMMISSION, MAX_COMMISSION
+            )));
         }
 
         self.validators.insert(
@@ -132,7 +129,8 @@ impl StakeRegistry {
                 self_stake,
                 total_delegated: 0,
                 commission_rate,
-                max_commission_rate: commission_rate.saturating_add(MAX_COMMISSION_CHANGE_PER_EPOCH * 5),
+                max_commission_rate: commission_rate
+                    .saturating_add(MAX_COMMISSION_CHANGE_PER_EPOCH * 5),
                 is_jailed: false,
                 jail_until: 0,
                 is_tombstoned: false,
@@ -160,9 +158,10 @@ impl StakeRegistry {
                 "delegation amount must be > 0".into(),
             ));
         }
-        let val = self.validators.get_mut(validator).ok_or_else(|| {
-            SentrixError::InvalidTransaction("validator not found".into())
-        })?;
+        let val = self
+            .validators
+            .get_mut(validator)
+            .ok_or_else(|| SentrixError::InvalidTransaction("validator not found".into()))?;
         if val.is_tombstoned {
             return Err(SentrixError::InvalidTransaction(
                 "cannot delegate to tombstoned validator".into(),
@@ -172,15 +171,20 @@ impl StakeRegistry {
         let delegator_entries = self.delegations.entry(delegator.to_string()).or_default();
 
         // Check if already delegating to this validator → add to existing
-        if let Some(entry) = delegator_entries.iter_mut().find(|e| e.validator == validator) {
-            entry.amount = entry.amount.checked_add(amount).ok_or_else(|| {
-                SentrixError::InvalidTransaction("delegation overflow".into())
-            })?;
+        if let Some(entry) = delegator_entries
+            .iter_mut()
+            .find(|e| e.validator == validator)
+        {
+            entry.amount = entry
+                .amount
+                .checked_add(amount)
+                .ok_or_else(|| SentrixError::InvalidTransaction("delegation overflow".into()))?;
         } else {
             if delegator_entries.len() >= MAX_DELEGATIONS_PER_ACCOUNT {
-                return Err(SentrixError::InvalidTransaction(
-                    format!("max {} delegations per account", MAX_DELEGATIONS_PER_ACCOUNT),
-                ));
+                return Err(SentrixError::InvalidTransaction(format!(
+                    "max {} delegations per account",
+                    MAX_DELEGATIONS_PER_ACCOUNT
+                )));
             }
             delegator_entries.push(DelegationEntry {
                 delegator: delegator.to_string(),
@@ -191,12 +195,14 @@ impl StakeRegistry {
         }
 
         // Update validator total
-        let val = self.validators.get_mut(validator).ok_or_else(|| {
-            SentrixError::InvalidTransaction("validator not found".into())
-        })?;
-        val.total_delegated = val.total_delegated.checked_add(amount).ok_or_else(|| {
-            SentrixError::InvalidTransaction("delegated total overflow".into())
-        })?;
+        let val = self
+            .validators
+            .get_mut(validator)
+            .ok_or_else(|| SentrixError::InvalidTransaction("validator not found".into()))?;
+        val.total_delegated = val
+            .total_delegated
+            .checked_add(amount)
+            .ok_or_else(|| SentrixError::InvalidTransaction("delegated total overflow".into()))?;
 
         Ok(())
     }
@@ -215,12 +221,16 @@ impl StakeRegistry {
         }
 
         // Find and reduce delegation
-        let entries = self.delegations.get_mut(delegator).ok_or_else(|| {
-            SentrixError::InvalidTransaction("no delegations found".into())
-        })?;
-        let entry = entries.iter_mut().find(|e| e.validator == validator).ok_or_else(|| {
-            SentrixError::InvalidTransaction("delegation to this validator not found".into())
-        })?;
+        let entries = self
+            .delegations
+            .get_mut(delegator)
+            .ok_or_else(|| SentrixError::InvalidTransaction("no delegations found".into()))?;
+        let entry = entries
+            .iter_mut()
+            .find(|e| e.validator == validator)
+            .ok_or_else(|| {
+                SentrixError::InvalidTransaction("delegation to this validator not found".into())
+            })?;
         if entry.amount < amount {
             return Err(SentrixError::InvalidTransaction(
                 "undelegation exceeds delegated amount".into(),
@@ -234,20 +244,24 @@ impl StakeRegistry {
         }
 
         // Check unbonding entry count for this delegator+validator pair
-        let existing_unbonding = self.unbonding_queue.values()
+        let existing_unbonding = self
+            .unbonding_queue
+            .values()
             .flat_map(|v| v.iter())
             .filter(|u| u.delegator == delegator && u.validator == validator)
             .count();
         if existing_unbonding >= MAX_UNBONDING_ENTRIES {
-            return Err(SentrixError::InvalidTransaction(
-                format!("max {} unbonding entries per delegation", MAX_UNBONDING_ENTRIES),
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "max {} unbonding entries per delegation",
+                MAX_UNBONDING_ENTRIES
+            )));
         }
 
         // Reduce validator total
-        let val = self.validators.get_mut(validator).ok_or_else(|| {
-            SentrixError::InvalidTransaction("validator not found".into())
-        })?;
+        let val = self
+            .validators
+            .get_mut(validator)
+            .ok_or_else(|| SentrixError::InvalidTransaction("validator not found".into()))?;
         val.total_delegated = val.total_delegated.saturating_sub(amount);
 
         // Queue unbonding
@@ -288,9 +302,10 @@ impl StakeRegistry {
         if let Some(&last) = self.redelegate_cooldowns.get(delegator)
             && current_height < last
         {
-            return Err(SentrixError::InvalidTransaction(
-                format!("redelegate cooldown active until height {}", last),
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "redelegate cooldown active until height {}",
+                last
+            )));
         }
 
         // Verify target validator exists and is not tombstoned
@@ -299,19 +314,28 @@ impl StakeRegistry {
                 "target validator not found".into(),
             ));
         }
-        if self.validators.get(to_validator).map(|v| v.is_tombstoned).unwrap_or(true) {
+        if self
+            .validators
+            .get(to_validator)
+            .map(|v| v.is_tombstoned)
+            .unwrap_or(true)
+        {
             return Err(SentrixError::InvalidTransaction(
                 "cannot redelegate to tombstoned validator".into(),
             ));
         }
 
         // Reduce from source
-        let entries = self.delegations.get_mut(delegator).ok_or_else(|| {
-            SentrixError::InvalidTransaction("no delegations found".into())
-        })?;
-        let from_entry = entries.iter_mut().find(|e| e.validator == from_validator).ok_or_else(|| {
-            SentrixError::InvalidTransaction("delegation to source validator not found".into())
-        })?;
+        let entries = self
+            .delegations
+            .get_mut(delegator)
+            .ok_or_else(|| SentrixError::InvalidTransaction("no delegations found".into()))?;
+        let from_entry = entries
+            .iter_mut()
+            .find(|e| e.validator == from_validator)
+            .ok_or_else(|| {
+                SentrixError::InvalidTransaction("delegation to source validator not found".into())
+            })?;
         if from_entry.amount < amount {
             return Err(SentrixError::InvalidTransaction(
                 "redelegate exceeds delegated amount".into(),
@@ -330,14 +354,16 @@ impl StakeRegistry {
         // Add to target (reuse delegate logic inline to avoid borrow issues)
         let entries = self.delegations.entry(delegator.to_string()).or_default();
         if let Some(to_entry) = entries.iter_mut().find(|e| e.validator == to_validator) {
-            to_entry.amount = to_entry.amount.checked_add(amount).ok_or_else(|| {
-                SentrixError::InvalidTransaction("delegation overflow".into())
-            })?;
+            to_entry.amount = to_entry
+                .amount
+                .checked_add(amount)
+                .ok_or_else(|| SentrixError::InvalidTransaction("delegation overflow".into()))?;
         } else {
             if entries.len() >= MAX_DELEGATIONS_PER_ACCOUNT {
-                return Err(SentrixError::InvalidTransaction(
-                    format!("max {} delegations per account", MAX_DELEGATIONS_PER_ACCOUNT),
-                ));
+                return Err(SentrixError::InvalidTransaction(format!(
+                    "max {} delegations per account",
+                    MAX_DELEGATIONS_PER_ACCOUNT
+                )));
             }
             entries.push(DelegationEntry {
                 delegator: delegator.to_string(),
@@ -366,9 +392,10 @@ impl StakeRegistry {
     // ── Slashing ─────────────────────────────────────────────
 
     pub fn slash(&mut self, validator: &str, basis_points: u16) -> SentrixResult<u64> {
-        let val = self.validators.get_mut(validator).ok_or_else(|| {
-            SentrixError::InvalidTransaction("validator not found".into())
-        })?;
+        let val = self
+            .validators
+            .get_mut(validator)
+            .ok_or_else(|| SentrixError::InvalidTransaction("validator not found".into()))?;
 
         let total = val.total_stake();
         let slash_amount = (total as u128)
@@ -391,8 +418,7 @@ impl StakeRegistry {
             for entries in self.delegations.values_mut() {
                 for entry in entries.iter_mut() {
                     if entry.validator == validator && delegated_before > 0 {
-                        let entry_slash = (entry.amount as u128)
-                            .saturating_mul(remaining as u128)
+                        let entry_slash = (entry.amount as u128).saturating_mul(remaining as u128)
                             / (delegated_before as u128);
                         entry.amount = entry.amount.saturating_sub(entry_slash as u64);
                     }
@@ -404,9 +430,8 @@ impl StakeRegistry {
         for entries in self.unbonding_queue.values_mut() {
             for entry in entries.iter_mut() {
                 if entry.validator == validator {
-                    let entry_slash = (entry.amount as u128)
-                        .saturating_mul(basis_points as u128)
-                        / 10_000;
+                    let entry_slash =
+                        (entry.amount as u128).saturating_mul(basis_points as u128) / 10_000;
                     entry.amount = entry.amount.saturating_sub(entry_slash as u64);
                 }
             }
@@ -415,19 +440,26 @@ impl StakeRegistry {
         Ok(slash_amount)
     }
 
-    pub fn jail(&mut self, validator: &str, duration: u64, current_height: u64) -> SentrixResult<()> {
-        let val = self.validators.get_mut(validator).ok_or_else(|| {
-            SentrixError::InvalidTransaction("validator not found".into())
-        })?;
+    pub fn jail(
+        &mut self,
+        validator: &str,
+        duration: u64,
+        current_height: u64,
+    ) -> SentrixResult<()> {
+        let val = self
+            .validators
+            .get_mut(validator)
+            .ok_or_else(|| SentrixError::InvalidTransaction("validator not found".into()))?;
         val.is_jailed = true;
         val.jail_until = current_height.saturating_add(duration);
         Ok(())
     }
 
     pub fn tombstone(&mut self, validator: &str) -> SentrixResult<()> {
-        let val = self.validators.get_mut(validator).ok_or_else(|| {
-            SentrixError::InvalidTransaction("validator not found".into())
-        })?;
+        let val = self
+            .validators
+            .get_mut(validator)
+            .ok_or_else(|| SentrixError::InvalidTransaction("validator not found".into()))?;
         val.is_jailed = true;
         val.is_tombstoned = true;
         val.jail_until = u64::MAX;
@@ -435,18 +467,20 @@ impl StakeRegistry {
     }
 
     pub fn unjail(&mut self, validator: &str, current_height: u64) -> SentrixResult<()> {
-        let val = self.validators.get_mut(validator).ok_or_else(|| {
-            SentrixError::InvalidTransaction("validator not found".into())
-        })?;
+        let val = self
+            .validators
+            .get_mut(validator)
+            .ok_or_else(|| SentrixError::InvalidTransaction("validator not found".into()))?;
         if val.is_tombstoned {
             return Err(SentrixError::InvalidTransaction(
                 "tombstoned validators cannot unjail".into(),
             ));
         }
         if current_height < val.jail_until {
-            return Err(SentrixError::InvalidTransaction(
-                format!("jail period active until height {}", val.jail_until),
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "jail period active until height {}",
+                val.jail_until
+            )));
         }
         if val.self_stake < MIN_SELF_STAKE {
             return Err(SentrixError::InvalidTransaction(
@@ -506,16 +540,16 @@ impl StakeRegistry {
         })?;
 
         let total_reward = block_reward.saturating_add(validator_fee_share);
-        let commission = (total_reward as u128)
-            .saturating_mul(val.commission_rate as u128)
-            / 10_000;
+        let commission =
+            (total_reward as u128).saturating_mul(val.commission_rate as u128) / 10_000;
         let commission = commission as u64;
         let delegator_pool = total_reward.saturating_sub(commission);
 
         // Commission goes to validator's pending rewards
-        let val = self.validators.get_mut(proposer).ok_or_else(|| {
-            SentrixError::InvalidTransaction("proposer not found".into())
-        })?;
+        let val = self
+            .validators
+            .get_mut(proposer)
+            .ok_or_else(|| SentrixError::InvalidTransaction("proposer not found".into()))?;
         val.pending_rewards = val.pending_rewards.saturating_add(commission);
 
         // Delegator pool distributed proportionally
@@ -525,9 +559,8 @@ impl StakeRegistry {
         }
 
         // Self-stake portion goes to validator too
-        let self_share = (delegator_pool as u128)
-            .saturating_mul(val.self_stake as u128)
-            / (total_stake as u128);
+        let self_share =
+            (delegator_pool as u128).saturating_mul(val.self_stake as u128) / (total_stake as u128);
         val.pending_rewards = val.pending_rewards.saturating_add(self_share as u64);
 
         // Remaining distributed to delegators (tracked off-chain for now, claimable later)
@@ -561,30 +594,30 @@ impl StakeRegistry {
 
     // ── Commission ───────────────────────────────────────────
 
-    pub fn update_commission(
-        &mut self,
-        validator: &str,
-        new_rate: u16,
-    ) -> SentrixResult<()> {
-        let val = self.validators.get_mut(validator).ok_or_else(|| {
-            SentrixError::InvalidTransaction("validator not found".into())
-        })?;
+    pub fn update_commission(&mut self, validator: &str, new_rate: u16) -> SentrixResult<()> {
+        let val = self
+            .validators
+            .get_mut(validator)
+            .ok_or_else(|| SentrixError::InvalidTransaction("validator not found".into()))?;
 
         if !(MIN_COMMISSION..=MAX_COMMISSION).contains(&new_rate) {
-            return Err(SentrixError::InvalidTransaction(
-                format!("commission {} out of range [{}, {}]", new_rate, MIN_COMMISSION, MAX_COMMISSION),
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "commission {} out of range [{}, {}]",
+                new_rate, MIN_COMMISSION, MAX_COMMISSION
+            )));
         }
         if new_rate > val.max_commission_rate {
-            return Err(SentrixError::InvalidTransaction(
-                format!("commission {} exceeds max {}", new_rate, val.max_commission_rate),
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "commission {} exceeds max {}",
+                new_rate, val.max_commission_rate
+            )));
         }
         let diff = new_rate.abs_diff(val.commission_rate);
         if diff > MAX_COMMISSION_CHANGE_PER_EPOCH {
-            return Err(SentrixError::InvalidTransaction(
-                format!("commission change {} exceeds max {} per epoch", diff, MAX_COMMISSION_CHANGE_PER_EPOCH),
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "commission change {} exceeds max {} per epoch",
+                diff, MAX_COMMISSION_CHANGE_PER_EPOCH
+            )));
         }
 
         val.commission_rate = new_rate;
@@ -637,7 +670,7 @@ impl StakeRegistry {
         // to ensure uniform distribution across total_weight range.
         // Previous naive (height*31+round)*7 % total_weight always produced
         // small values → always picked the first validator.
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(height.to_le_bytes());
         hasher.update(round.to_le_bytes());
@@ -684,21 +717,33 @@ mod tests {
     #[test]
     fn test_register_below_min_stake() {
         let mut reg = new_registry();
-        assert!(reg.register_validator("0xval1", MIN_SELF_STAKE - 1, 1000, 0).is_err());
+        assert!(
+            reg.register_validator("0xval1", MIN_SELF_STAKE - 1, 1000, 0)
+                .is_err()
+        );
     }
 
     #[test]
     fn test_register_duplicate() {
         let mut reg = new_registry();
         register_val(&mut reg, "0xval1", MIN_SELF_STAKE);
-        assert!(reg.register_validator("0xval1", MIN_SELF_STAKE, 1000, 0).is_err());
+        assert!(
+            reg.register_validator("0xval1", MIN_SELF_STAKE, 1000, 0)
+                .is_err()
+        );
     }
 
     #[test]
     fn test_register_commission_out_of_range() {
         let mut reg = new_registry();
-        assert!(reg.register_validator("0xval1", MIN_SELF_STAKE, 100, 0).is_err()); // too low
-        assert!(reg.register_validator("0xval2", MIN_SELF_STAKE, 5000, 0).is_err()); // too high
+        assert!(
+            reg.register_validator("0xval1", MIN_SELF_STAKE, 100, 0)
+                .is_err()
+        ); // too low
+        assert!(
+            reg.register_validator("0xval2", MIN_SELF_STAKE, 5000, 0)
+                .is_err()
+        ); // too high
     }
 
     #[test]
@@ -797,10 +842,25 @@ mod tests {
         register_val(&mut reg, "0xval2", MIN_SELF_STAKE);
         reg.delegate("0xdel1", "0xval1", 10_000, 100).unwrap();
 
-        reg.redelegate("0xdel1", "0xval1", "0xval2", 4_000, 200).unwrap();
+        reg.redelegate("0xdel1", "0xval1", "0xval2", 4_000, 200)
+            .unwrap();
 
-        assert_eq!(reg.delegations["0xdel1"].iter().find(|e| e.validator == "0xval1").unwrap().amount, 6_000);
-        assert_eq!(reg.delegations["0xdel1"].iter().find(|e| e.validator == "0xval2").unwrap().amount, 4_000);
+        assert_eq!(
+            reg.delegations["0xdel1"]
+                .iter()
+                .find(|e| e.validator == "0xval1")
+                .unwrap()
+                .amount,
+            6_000
+        );
+        assert_eq!(
+            reg.delegations["0xdel1"]
+                .iter()
+                .find(|e| e.validator == "0xval2")
+                .unwrap()
+                .amount,
+            4_000
+        );
         assert_eq!(reg.validators["0xval1"].total_delegated, 6_000);
         assert_eq!(reg.validators["0xval2"].total_delegated, 4_000);
     }
@@ -812,14 +872,25 @@ mod tests {
         register_val(&mut reg, "0xval2", MIN_SELF_STAKE);
         register_val(&mut reg, "0xval3", MIN_SELF_STAKE);
         reg.delegate("0xdel1", "0xval1", 10_000, 100).unwrap();
-        reg.redelegate("0xdel1", "0xval1", "0xval2", 2_000, 200).unwrap();
+        reg.redelegate("0xdel1", "0xval1", "0xval2", 2_000, 200)
+            .unwrap();
 
         // Second redelegate within cooldown should fail
         reg.delegate("0xdel1", "0xval2", 5_000, 200).unwrap();
-        assert!(reg.redelegate("0xdel1", "0xval2", "0xval3", 1_000, 300).is_err());
+        assert!(
+            reg.redelegate("0xdel1", "0xval2", "0xval3", 1_000, 300)
+                .is_err()
+        );
 
         // After cooldown it works
-        reg.redelegate("0xdel1", "0xval2", "0xval3", 1_000, 200 + REDELEGATE_COOLDOWN).unwrap();
+        reg.redelegate(
+            "0xdel1",
+            "0xval2",
+            "0xval3",
+            1_000,
+            200 + REDELEGATE_COOLDOWN,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -827,7 +898,10 @@ mod tests {
         let mut reg = new_registry();
         register_val(&mut reg, "0xval1", MIN_SELF_STAKE);
         reg.delegate("0xdel1", "0xval1", 10_000, 100).unwrap();
-        assert!(reg.redelegate("0xdel1", "0xval1", "0xval1", 1_000, 200).is_err());
+        assert!(
+            reg.redelegate("0xdel1", "0xval1", "0xval1", 1_000, 200)
+                .is_err()
+        );
     }
 
     #[test]
@@ -837,14 +911,18 @@ mod tests {
         let slashed = reg.slash("0xval1", 100).unwrap(); // 1%
         let expected = MIN_SELF_STAKE / 100;
         assert_eq!(slashed, expected);
-        assert_eq!(reg.validators["0xval1"].self_stake, MIN_SELF_STAKE - expected);
+        assert_eq!(
+            reg.validators["0xval1"].self_stake,
+            MIN_SELF_STAKE - expected
+        );
     }
 
     #[test]
     fn test_slash_with_delegations() {
         let mut reg = new_registry();
         register_val(&mut reg, "0xval1", MIN_SELF_STAKE);
-        reg.delegate("0xdel1", "0xval1", MIN_SELF_STAKE, 100).unwrap(); // equal delegation
+        reg.delegate("0xdel1", "0xval1", MIN_SELF_STAKE, 100)
+            .unwrap(); // equal delegation
         let total = MIN_SELF_STAKE * 2;
         let slashed = reg.slash("0xval1", 2000).unwrap(); // 20%
         assert_eq!(slashed, total / 5);
@@ -933,7 +1011,8 @@ mod tests {
     fn test_distribute_reward() {
         let mut reg = new_registry();
         register_val(&mut reg, "0xval1", MIN_SELF_STAKE);
-        reg.delegate("0xdel1", "0xval1", MIN_SELF_STAKE, 100).unwrap();
+        reg.delegate("0xdel1", "0xval1", MIN_SELF_STAKE, 100)
+            .unwrap();
         reg.update_active_set();
 
         // 10% commission, reward = 100_000_000 (1 SRX)
@@ -975,8 +1054,12 @@ mod tests {
         let mut saw_val2 = false;
         for h in 0..100 {
             if let Some(p) = reg.weighted_proposer(h, 0) {
-                if p == "0xval1" { saw_val1 = true; }
-                if p == "0xval2" { saw_val2 = true; }
+                if p == "0xval1" {
+                    saw_val1 = true;
+                }
+                if p == "0xval2" {
+                    saw_val2 = true;
+                }
             }
         }
         // val2 has 2x stake so should appear more often, but both should appear
@@ -996,7 +1079,10 @@ mod tests {
             let addr = format!("0xval{:04}", i);
             register_val(&mut reg, &addr, MIN_SELF_STAKE);
         }
-        assert!(reg.register_validator("0xoverflow", MIN_SELF_STAKE, 1000, 0).is_err());
+        assert!(
+            reg.register_validator("0xoverflow", MIN_SELF_STAKE, 1000, 0)
+                .is_err()
+        );
     }
 
     #[test]
@@ -1004,7 +1090,10 @@ mod tests {
         let mut reg = new_registry();
         register_val(&mut reg, "0xval1", MIN_SELF_STAKE);
         reg.delegate("0xdel1", "0xval1", 5_000_000, 100).unwrap();
-        assert_eq!(reg.validators["0xval1"].total_stake(), MIN_SELF_STAKE + 5_000_000);
+        assert_eq!(
+            reg.validators["0xval1"].total_stake(),
+            MIN_SELF_STAKE + 5_000_000
+        );
     }
 
     #[test]

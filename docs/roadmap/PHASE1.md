@@ -24,7 +24,7 @@ Done. Live in production.
 
 | | |
 |-|-|
-| Tests | 479+ |
+| Tests | 525+ |
 | PRs merged | #1–#94 |
 | Audit rounds | 11 (116 findings, 78+ fixed) |
 | Chain height | 141,000+ |

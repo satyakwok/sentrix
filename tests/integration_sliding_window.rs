@@ -32,13 +32,16 @@ fn test_sliding_window_eviction() {
         common::mine_empty_block(&mut bc, &val.address);
     }
 
-    assert_eq!(bc.height(), TOTAL_BLOCKS, "height must equal total blocks mined");
+    assert_eq!(
+        bc.height(),
+        TOTAL_BLOCKS,
+        "height must equal total blocks mined"
+    );
 
     let window_start = bc.chain_window_start();
     let expected_window_start = TOTAL_BLOCKS - CHAIN_WINDOW_SIZE as u64 + 1;
     assert_eq!(
-        window_start,
-        expected_window_start,
+        window_start, expected_window_start,
         "window_start should be height - CHAIN_WINDOW_SIZE + 1"
     );
 
@@ -78,8 +81,7 @@ fn test_sliding_window_eviction() {
     // Window size = height - chain_window_start + 1 == CHAIN_WINDOW_SIZE
     let inferred_window_size = bc.height() - bc.chain_window_start() + 1;
     assert_eq!(
-        inferred_window_size,
-        CHAIN_WINDOW_SIZE as u64,
+        inferred_window_size, CHAIN_WINDOW_SIZE as u64,
         "window size must equal CHAIN_WINDOW_SIZE"
     );
 }
@@ -104,8 +106,14 @@ fn test_chain_stats_window_metadata() {
     let stats = bc.chain_stats();
     let window_start = stats["window_start_block"].as_u64().unwrap();
     let is_partial = stats["window_is_partial"].as_bool().unwrap();
-    assert!(window_start > 0, "window_start must advance after CHAIN_WINDOW_SIZE blocks");
-    assert!(is_partial, "is_partial must be true when window has advanced");
+    assert!(
+        window_start > 0,
+        "window_start must advance after CHAIN_WINDOW_SIZE blocks"
+    );
+    assert!(
+        is_partial,
+        "is_partial must be true when window has advanced"
+    );
 }
 
 /// After saving to storage and reloading, height is correct and the sliding
@@ -120,7 +128,11 @@ fn test_sliding_window_survives_restart() {
 
     let height_before = bc.height();
     let window_start_before = bc.chain_window_start();
-    let latest_hash = bc.get_block(height_before).expect("latest block").hash.clone();
+    let latest_hash = bc
+        .get_block(height_before)
+        .expect("latest block")
+        .hash
+        .clone();
 
     // Save to storage
     let tmp = tempfile::TempDir::new().expect("tempdir");
@@ -135,7 +147,11 @@ fn test_sliding_window_survives_restart() {
     let loaded = storage2.load_blockchain().expect("load").expect("no state");
 
     // Height must be preserved exactly
-    assert_eq!(loaded.height(), height_before, "height must survive restart");
+    assert_eq!(
+        loaded.height(),
+        height_before,
+        "height must survive restart"
+    );
     assert_eq!(loaded.height(), TOTAL_BLOCKS);
 
     // Window start must be restored
@@ -153,9 +169,15 @@ fn test_sliding_window_survives_restart() {
 
     // Latest block hash must match
     let reloaded_latest = loaded.get_block(height_before).expect("latest in window");
-    assert_eq!(reloaded_latest.hash, latest_hash, "latest block hash must survive restart");
+    assert_eq!(
+        reloaded_latest.hash, latest_hash,
+        "latest block hash must survive restart"
+    );
 
-    assert!(loaded.is_valid_chain_window(), "chain must be valid after reload");
+    assert!(
+        loaded.is_valid_chain_window(),
+        "chain must be valid after reload"
+    );
 }
 
 /// Blocks added after a window overflow do not appear in get_block() for evicted indices.
@@ -171,7 +193,10 @@ fn test_evicted_block_returns_none() {
     // height = CHAIN_WINDOW_SIZE + 1; window_start = height - CHAIN_WINDOW_SIZE + 1 = 2
     let expected_ws = bc.height() - CHAIN_WINDOW_SIZE as u64 + 1;
     let ws = bc.chain_window_start();
-    assert_eq!(ws, expected_ws, "window_start = height - CHAIN_WINDOW_SIZE + 1");
+    assert_eq!(
+        ws, expected_ws,
+        "window_start = height - CHAIN_WINDOW_SIZE + 1"
+    );
 
     // Blocks 0 and 1 (both before window_start=2) must be evicted
     assert!(

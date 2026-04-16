@@ -1,8 +1,8 @@
 // trie/node.rs - Sentrix — TrieNode types and cryptographic hash functions
 
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
-use sha2::{Sha256, Digest};
-use serde::{Serialize, Deserialize};
 
 /// 32-byte content-addressed hash — the fundamental unit of the SMT.
 pub type NodeHash = [u8; 32];
@@ -87,10 +87,7 @@ pub fn get_bit(key: &[u8; 32], i: usize) -> bool {
 pub enum TrieNode {
     /// A short-circuit leaf that can appear at any depth (0–255).
     /// `value_hash` = BLAKE3(0x00 || key || value) — also the node's address in storage.
-    Leaf {
-        key: [u8; 32],
-        value_hash: NodeHash,
-    },
+    Leaf { key: [u8; 32], value_hash: NodeHash },
     /// An internal node with left (bit=0) and right (bit=1) children.
     /// `hash` = SHA-256(0x01 || left || right).
     Internal {

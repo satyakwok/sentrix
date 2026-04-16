@@ -1,10 +1,10 @@
 // block.rs - Sentrix
 
-use serde::{Deserialize, Serialize};
-use hex;
-use crate::core::transaction::Transaction;
 use crate::core::merkle::{merkle_root, sha256_hex};
+use crate::core::transaction::Transaction;
 use crate::types::error::{SentrixError, SentrixResult};
+use hex;
+use serde::{Deserialize, Serialize};
 
 /// Block height at which `state_root` is included in `calculate_hash()`.
 ///
@@ -75,7 +75,8 @@ impl Block {
         if self.index >= STATE_ROOT_FORK_HEIGHT {
             // Include state_root in the block hash to cryptographically commit the account state.
             // state_root = None → 64 zero hex chars (pre-trie or genesis sentinel).
-            let state_root_hex = self.state_root
+            let state_root_hex = self
+                .state_root
                 .map(hex::encode)
                 .unwrap_or_else(|| "0".repeat(64));
             let payload = format!(
@@ -92,11 +93,7 @@ impl Block {
             // Legacy format — backward compatible with all existing blocks < FORK_HEIGHT.
             let payload = format!(
                 "{}{}{}{}{}",
-                self.index,
-                self.previous_hash,
-                self.merkle_root,
-                self.timestamp,
-                self.validator,
+                self.index, self.previous_hash, self.merkle_root, self.timestamp, self.validator,
             );
             sha256_hex(payload.as_bytes())
         }
@@ -110,12 +107,7 @@ impl Block {
     // Hardcoded genesis timestamp ensures all nodes derive an identical genesis block.
     pub fn genesis() -> Self {
         const GENESIS_TIMESTAMP: u64 = 1_712_620_800; // 2024-04-09 00:00:00 UTC
-        let genesis_tx = Transaction::new_coinbase(
-            "GENESIS".to_string(),
-            0,
-            0,
-            GENESIS_TIMESTAMP,
-        );
+        let genesis_tx = Transaction::new_coinbase("GENESIS".to_string(), 0, 0, GENESIS_TIMESTAMP);
 
         let txids: Vec<String> = vec![genesis_tx.txid.clone()];
         let merkle = merkle_root(&txids);
@@ -146,39 +138,44 @@ impl Block {
     }
 
     // Validate block structure
-    pub fn validate_structure(&self, expected_index: u64, expected_prev_hash: &str) -> SentrixResult<()> {
+    pub fn validate_structure(
+        &self,
+        expected_index: u64,
+        expected_prev_hash: &str,
+    ) -> SentrixResult<()> {
         // Check index
         if self.index != expected_index {
-            return Err(SentrixError::InvalidBlock(
-                format!("expected index {}, got {}", expected_index, self.index)
-            ));
+            return Err(SentrixError::InvalidBlock(format!(
+                "expected index {}, got {}",
+                expected_index, self.index
+            )));
         }
 
         // Check previous hash link
         if self.previous_hash != expected_prev_hash {
             return Err(SentrixError::InvalidBlock(
-                "invalid previous hash".to_string()
+                "invalid previous hash".to_string(),
             ));
         }
 
         // Check hash integrity
         if !self.is_valid_hash() {
             return Err(SentrixError::InvalidBlock(
-                "block hash is invalid".to_string()
+                "block hash is invalid".to_string(),
             ));
         }
 
         // Must have at least coinbase
         if self.transactions.is_empty() {
             return Err(SentrixError::InvalidBlock(
-                "block has no transactions".to_string()
+                "block has no transactions".to_string(),
             ));
         }
 
         // First transaction must be coinbase
         if !self.transactions[0].is_coinbase() {
             return Err(SentrixError::InvalidBlock(
-                "first transaction must be coinbase".to_string()
+                "first transaction must be coinbase".to_string(),
             ));
         }
 
@@ -187,7 +184,7 @@ impl Block {
         let computed_merkle = merkle_root(&txids);
         if computed_merkle != self.merkle_root {
             return Err(SentrixError::InvalidBlock(
-                "merkle root mismatch".to_string()
+                "merkle root mismatch".to_string(),
             ));
         }
 
@@ -254,7 +251,12 @@ mod tests {
         let block1 = Block::new(
             1,
             genesis.hash.clone(),
-            vec![Transaction::new_coinbase("validator1".to_string(), 100_000_000, 1, 1_712_620_800)],
+            vec![Transaction::new_coinbase(
+                "validator1".to_string(),
+                100_000_000,
+                1,
+                1_712_620_800,
+            )],
             "validator1".to_string(),
         );
         assert!(block1.validate_structure(1, &genesis.hash).is_ok());
@@ -270,8 +272,10 @@ mod tests {
         let hash_with_root = block.calculate_hash();
         block.state_root = None;
         let hash_without_root = block.calculate_hash();
-        assert_eq!(hash_with_root, hash_without_root,
-            "blocks below fork height must not include state_root in hash");
+        assert_eq!(
+            hash_with_root, hash_without_root,
+            "blocks below fork height must not include state_root in hash"
+        );
     }
 
     #[test]
@@ -280,7 +284,12 @@ mod tests {
         let mut block = Block::new(
             STATE_ROOT_FORK_HEIGHT,
             "0".repeat(64),
-            vec![Transaction::new_coinbase("v1".to_string(), 100_000_000, STATE_ROOT_FORK_HEIGHT, 1_712_620_800)],
+            vec![Transaction::new_coinbase(
+                "v1".to_string(),
+                100_000_000,
+                STATE_ROOT_FORK_HEIGHT,
+                1_712_620_800,
+            )],
             "v1".to_string(),
         );
         // state_root = None → "0"*64 sentinel in hash
@@ -288,10 +297,14 @@ mod tests {
         // Setting state_root to Some changes the hash
         block.state_root = Some([0xFFu8; 32]);
         let hash_with_root = block.calculate_hash();
-        assert_ne!(hash_no_root, hash_with_root,
-            "blocks at fork height must include state_root in hash");
+        assert_ne!(
+            hash_no_root, hash_with_root,
+            "blocks at fork height must include state_root in hash"
+        );
         // is_valid_hash must still work (block.hash was computed with old state_root=None)
-        assert!(!block.is_valid_hash(),
-            "is_valid_hash must fail when state_root changed after hash was set");
+        assert!(
+            !block.is_valid_hash(),
+            "is_valid_hash must fail when state_root changed after hash was set"
+        );
     }
 }

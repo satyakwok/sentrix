@@ -1,9 +1,9 @@
 // vm.rs - Sentrix — SRX-20 Token Standard
 
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use sha2::{Sha256, Digest};
 use crate::types::error::{SentrixError, SentrixResult};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 
 // ── Contract address generation ──────────────────────────
 // Contract addresses are derived from a deterministic seed (txid or deployer+nonce) — never from wall time.
@@ -60,63 +60,88 @@ impl SRX20Contract {
     pub fn mint(&mut self, caller: &str, to: &str, amount: u64) -> SentrixResult<()> {
         if caller != self.owner {
             return Err(SentrixError::UnauthorizedValidator(
-                "only the contract owner can mint tokens".to_string()
+                "only the contract owner can mint tokens".to_string(),
             ));
         }
         if to.is_empty() || amount == 0 {
-            return Err(SentrixError::InvalidTransaction("invalid mint params".to_string()));
+            return Err(SentrixError::InvalidTransaction(
+                "invalid mint params".to_string(),
+            ));
         }
         // Enforce max_supply cap when minting; 0 means unlimited
         if self.max_supply > 0 {
-            let new_supply = self.total_supply.checked_add(amount)
+            let new_supply = self
+                .total_supply
+                .checked_add(amount)
                 .ok_or_else(|| SentrixError::Internal("token supply overflow".to_string()))?;
             if new_supply > self.max_supply {
-                return Err(SentrixError::InvalidTransaction(
-                    format!("mint would exceed max_supply: {} + {} > {}", self.total_supply, amount, self.max_supply)
-                ));
+                return Err(SentrixError::InvalidTransaction(format!(
+                    "mint would exceed max_supply: {} + {} > {}",
+                    self.total_supply, amount, self.max_supply
+                )));
             }
         }
         let entry = self.balances.entry(to.to_string()).or_insert(0);
-        *entry = entry.checked_add(amount)
+        *entry = entry
+            .checked_add(amount)
             .ok_or_else(|| SentrixError::Internal("token balance overflow".to_string()))?;
-        self.total_supply = self.total_supply.checked_add(amount)
+        self.total_supply = self
+            .total_supply
+            .checked_add(amount)
             .ok_or_else(|| SentrixError::Internal("token supply overflow".to_string()))?;
         Ok(())
     }
 
     pub fn burn(&mut self, from: &str, amount: u64) -> SentrixResult<()> {
         if from.is_empty() || amount == 0 {
-            return Err(SentrixError::InvalidTransaction("invalid burn params".to_string()));
+            return Err(SentrixError::InvalidTransaction(
+                "invalid burn params".to_string(),
+            ));
         }
         let balance = self.balance_of(from);
         if balance < amount {
-            return Err(SentrixError::InsufficientBalance { have: balance, need: amount });
+            return Err(SentrixError::InsufficientBalance {
+                have: balance,
+                need: amount,
+            });
         }
         let entry = self.balances.entry(from.to_string()).or_insert(0);
-        *entry = entry.checked_sub(amount)
+        *entry = entry
+            .checked_sub(amount)
             .ok_or_else(|| SentrixError::Internal("token burn underflow".to_string()))?;
-        self.total_supply = self.total_supply.checked_sub(amount)
+        self.total_supply = self
+            .total_supply
+            .checked_sub(amount)
             .ok_or_else(|| SentrixError::Internal("supply underflow".to_string()))?;
         Ok(())
     }
 
     pub fn transfer(&mut self, from: &str, to: &str, amount: u64) -> SentrixResult<()> {
         if from.is_empty() || to.is_empty() || amount == 0 {
-            return Err(SentrixError::InvalidTransaction("invalid transfer params".to_string()));
+            return Err(SentrixError::InvalidTransaction(
+                "invalid transfer params".to_string(),
+            ));
         }
         if from == to {
-            return Err(SentrixError::InvalidTransaction("cannot transfer to self".to_string()));
+            return Err(SentrixError::InvalidTransaction(
+                "cannot transfer to self".to_string(),
+            ));
         }
         let balance = self.balance_of(from);
         if balance < amount {
-            return Err(SentrixError::InsufficientBalance { have: balance, need: amount });
+            return Err(SentrixError::InsufficientBalance {
+                have: balance,
+                need: amount,
+            });
         }
         // Safe: checked balance >= amount above
         let from_entry = self.balances.entry(from.to_string()).or_insert(0);
-        *from_entry = from_entry.checked_sub(amount)
+        *from_entry = from_entry
+            .checked_sub(amount)
             .ok_or_else(|| SentrixError::Internal("transfer underflow".to_string()))?;
         let to_entry = self.balances.entry(to.to_string()).or_insert(0);
-        *to_entry = to_entry.checked_add(amount)
+        *to_entry = to_entry
+            .checked_add(amount)
             .ok_or_else(|| SentrixError::Internal("transfer overflow".to_string()))?;
         Ok(())
     }
@@ -124,12 +149,14 @@ impl SRX20Contract {
     // Require allowance to be reset to 0 before setting a new non-zero value (ERC-20 double-spend mitigation)
     pub fn approve(&mut self, owner: &str, spender: &str, amount: u64) -> SentrixResult<()> {
         if owner.is_empty() || spender.is_empty() {
-            return Err(SentrixError::InvalidTransaction("invalid approve params".to_string()));
+            return Err(SentrixError::InvalidTransaction(
+                "invalid approve params".to_string(),
+            ));
         }
         let current = self.allowance(owner, spender);
         if current != 0 && amount != 0 {
             return Err(SentrixError::InvalidTransaction(
-                "must set allowance to 0 before changing to non-zero value".to_string()
+                "must set allowance to 0 before changing to non-zero value".to_string(),
             ));
         }
         self.allowances
@@ -139,30 +166,48 @@ impl SRX20Contract {
         Ok(())
     }
 
-    pub fn increase_allowance(&mut self, owner: &str, spender: &str, delta: u64) -> SentrixResult<()> {
+    pub fn increase_allowance(
+        &mut self,
+        owner: &str,
+        spender: &str,
+        delta: u64,
+    ) -> SentrixResult<()> {
         if owner.is_empty() || spender.is_empty() || delta == 0 {
-            return Err(SentrixError::InvalidTransaction("invalid increase_allowance params".to_string()));
+            return Err(SentrixError::InvalidTransaction(
+                "invalid increase_allowance params".to_string(),
+            ));
         }
-        let entry = self.allowances
+        let entry = self
+            .allowances
             .entry(owner.to_string())
             .or_default()
             .entry(spender.to_string())
             .or_insert(0);
-        *entry = entry.checked_add(delta)
+        *entry = entry
+            .checked_add(delta)
             .ok_or_else(|| SentrixError::Internal("allowance overflow".to_string()))?;
         Ok(())
     }
 
-    pub fn decrease_allowance(&mut self, owner: &str, spender: &str, delta: u64) -> SentrixResult<()> {
+    pub fn decrease_allowance(
+        &mut self,
+        owner: &str,
+        spender: &str,
+        delta: u64,
+    ) -> SentrixResult<()> {
         if owner.is_empty() || spender.is_empty() || delta == 0 {
-            return Err(SentrixError::InvalidTransaction("invalid decrease_allowance params".to_string()));
+            return Err(SentrixError::InvalidTransaction(
+                "invalid decrease_allowance params".to_string(),
+            ));
         }
-        let entry = self.allowances
+        let entry = self
+            .allowances
             .entry(owner.to_string())
             .or_default()
             .entry(spender.to_string())
             .or_insert(0);
-        *entry = entry.checked_sub(delta)
+        *entry = entry
+            .checked_sub(delta)
             .ok_or_else(|| SentrixError::InvalidTransaction("allowance underflow".to_string()))?;
         Ok(())
     }
@@ -175,29 +220,39 @@ impl SRX20Contract {
         amount: u64,
     ) -> SentrixResult<()> {
         if spender.is_empty() || from.is_empty() || to.is_empty() || amount == 0 {
-            return Err(SentrixError::InvalidTransaction("invalid transfer_from params".to_string()));
+            return Err(SentrixError::InvalidTransaction(
+                "invalid transfer_from params".to_string(),
+            ));
         }
         let allowed = self.allowance(from, spender);
         if allowed < amount {
-            return Err(SentrixError::InvalidTransaction(
-                format!("allowance {} < amount {}", allowed, amount)
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "allowance {} < amount {}",
+                allowed, amount
+            )));
         }
         let balance = self.balance_of(from);
         if balance < amount {
-            return Err(SentrixError::InsufficientBalance { have: balance, need: amount });
+            return Err(SentrixError::InsufficientBalance {
+                have: balance,
+                need: amount,
+            });
         }
         // Safe deductions (all pre-checked above)
-        let new_allowance = allowed.checked_sub(amount)
+        let new_allowance = allowed
+            .checked_sub(amount)
             .ok_or_else(|| SentrixError::Internal("allowance underflow".to_string()))?;
         self.allowances
-            .entry(from.to_string()).or_default()
+            .entry(from.to_string())
+            .or_default()
             .insert(spender.to_string(), new_allowance);
         let from_entry = self.balances.entry(from.to_string()).or_insert(0);
-        *from_entry = from_entry.checked_sub(amount)
+        *from_entry = from_entry
+            .checked_sub(amount)
             .ok_or_else(|| SentrixError::Internal("transfer_from underflow".to_string()))?;
         let to_entry = self.balances.entry(to.to_string()).or_insert(0);
-        *to_entry = to_entry.checked_add(amount)
+        *to_entry = to_entry
+            .checked_add(amount)
             .ok_or_else(|| SentrixError::Internal("transfer_from overflow".to_string()))?;
         Ok(())
     }
@@ -232,15 +287,22 @@ impl SRX20Contract {
     }
 
     pub fn list_holders(&self) -> Vec<serde_json::Value> {
-        let mut holders: Vec<(&String, u64)> = self.balances.iter()
+        let mut holders: Vec<(&String, u64)> = self
+            .balances
+            .iter()
             .filter(|(_, b)| **b > 0)
             .map(|(addr, bal)| (addr, *bal))
             .collect();
         holders.sort_by(|a, b| b.1.cmp(&a.1));
-        holders.iter().map(|(addr, bal)| serde_json::json!({
-            "address": addr,
-            "balance": bal,
-        })).collect()
+        holders
+            .iter()
+            .map(|(addr, bal)| {
+                serde_json::json!({
+                    "address": addr,
+                    "balance": bal,
+                })
+            })
+            .collect()
     }
 }
 
@@ -274,7 +336,10 @@ impl ContractRegistry {
                 "token name must be 1–64 characters".to_string(),
             ));
         }
-        if symbol.is_empty() || symbol.len() > 10 || !symbol.chars().all(|c| c.is_ascii_alphanumeric()) {
+        if symbol.is_empty()
+            || symbol.len() > 10
+            || !symbol.chars().all(|c| c.is_ascii_alphanumeric())
+        {
             return Err(SentrixError::InvalidTransaction(
                 "token symbol must be 1–10 ASCII alphanumeric characters".to_string(),
             ));
@@ -324,7 +389,8 @@ impl ContractRegistry {
     }
 
     pub fn get_token_balance(&self, contract: &str, address: &str) -> u64 {
-        self.contracts.get(contract)
+        self.contracts
+            .get(contract)
             .map(|c| c.balance_of(address))
             .unwrap_or(0)
     }
@@ -335,27 +401,53 @@ impl ContractRegistry {
 
     // ── On-chain token op helpers (called from add_block) ──
 
-    pub fn execute_transfer(&mut self, contract: &str, from: &str, to: &str, amount: u64) -> SentrixResult<()> {
-        let c = self.contracts.get_mut(contract)
+    pub fn execute_transfer(
+        &mut self,
+        contract: &str,
+        from: &str,
+        to: &str,
+        amount: u64,
+    ) -> SentrixResult<()> {
+        let c = self
+            .contracts
+            .get_mut(contract)
             .ok_or_else(|| SentrixError::NotFound(format!("contract {}", contract)))?;
         c.transfer(from, to, amount)
     }
 
     pub fn execute_burn(&mut self, contract: &str, from: &str, amount: u64) -> SentrixResult<()> {
-        let c = self.contracts.get_mut(contract)
+        let c = self
+            .contracts
+            .get_mut(contract)
             .ok_or_else(|| SentrixError::NotFound(format!("contract {}", contract)))?;
         c.burn(from, amount)
     }
 
-    pub fn execute_mint(&mut self, contract: &str, caller: &str, to: &str, amount: u64) -> SentrixResult<()> {
-        let c = self.contracts.get_mut(contract)
+    pub fn execute_mint(
+        &mut self,
+        contract: &str,
+        caller: &str,
+        to: &str,
+        amount: u64,
+    ) -> SentrixResult<()> {
+        let c = self
+            .contracts
+            .get_mut(contract)
             .ok_or_else(|| SentrixError::NotFound(format!("contract {}", contract)))?;
         // mint() now enforces owner check internally (M-05), caller passed through
         c.mint(caller, to, amount)
     }
 
-    pub fn execute_approve(&mut self, contract: &str, owner: &str, spender: &str, amount: u64) -> SentrixResult<()> {
-        let c = self.contracts.get_mut(contract)
+    pub fn execute_approve(
+        &mut self,
+        contract: &str,
+        owner: &str,
+        spender: &str,
+        amount: u64,
+    ) -> SentrixResult<()> {
+        let c = self
+            .contracts
+            .get_mut(contract)
             .ok_or_else(|| SentrixError::NotFound(format!("contract {}", contract)))?;
         c.approve(owner, spender, amount)
     }
@@ -368,10 +460,10 @@ impl ContractRegistry {
         caller: &str,
         params: &serde_json::Value,
     ) -> SentrixResult<serde_json::Value> {
-        let contract = self.contracts.get_mut(contract_address)
-            .ok_or_else(|| SentrixError::NotFound(
-                format!("contract {}", contract_address)
-            ))?;
+        let contract = self
+            .contracts
+            .get_mut(contract_address)
+            .ok_or_else(|| SentrixError::NotFound(format!("contract {}", contract_address)))?;
 
         match method {
             "mint" => {
@@ -426,9 +518,7 @@ impl ContractRegistry {
                 let spender = params["spender"].as_str().unwrap_or("");
                 Ok(serde_json::json!({"allowance": contract.allowance(owner, spender)}))
             }
-            "get_info" => {
-                Ok(contract.get_info())
-            }
+            "get_info" => Ok(contract.get_info()),
             _ => Err(SentrixError::NotFound(format!("method {}", method))),
         }
     }
@@ -440,7 +530,17 @@ mod tests {
 
     fn setup_registry() -> (ContractRegistry, String) {
         let mut reg = ContractRegistry::new();
-        let addr = reg.deploy("owner", "FastPoint Token", "FPT", 18, 1_000_000_000, 0, "seed_fpt").unwrap();
+        let addr = reg
+            .deploy(
+                "owner",
+                "FastPoint Token",
+                "FPT",
+                18,
+                1_000_000_000,
+                0,
+                "seed_fpt",
+            )
+            .unwrap();
         (reg, addr)
     }
 
@@ -509,7 +609,9 @@ mod tests {
     fn test_mint_only_owner() {
         let (mut reg, addr) = setup_registry();
         let result = reg.call(
-            &addr, "mint", "not_owner",
+            &addr,
+            "mint",
+            "not_owner",
             &serde_json::json!({"to": "someone", "amount": 1000}),
         );
         assert!(result.is_err());
@@ -519,9 +621,12 @@ mod tests {
     fn test_mint_by_owner() {
         let (mut reg, addr) = setup_registry();
         reg.call(
-            &addr, "mint", "owner",
+            &addr,
+            "mint",
+            "owner",
             &serde_json::json!({"to": "alice", "amount": 5000}),
-        ).unwrap();
+        )
+        .unwrap();
         let c = reg.get_contract(&addr).unwrap();
         assert_eq!(c.balance_of("alice"), 5000);
         assert_eq!(c.total_supply, 1_000_005_000);
@@ -531,9 +636,12 @@ mod tests {
     fn test_dispatch_transfer() {
         let (mut reg, addr) = setup_registry();
         reg.call(
-            &addr, "transfer", "owner",
+            &addr,
+            "transfer",
+            "owner",
             &serde_json::json!({"to": "bob", "amount": 100}),
-        ).unwrap();
+        )
+        .unwrap();
         let c = reg.get_contract(&addr).unwrap();
         assert_eq!(c.balance_of("bob"), 100);
     }
@@ -541,17 +649,23 @@ mod tests {
     #[test]
     fn test_dispatch_balance_of() {
         let (mut reg, addr) = setup_registry();
-        let result = reg.call(
-            &addr, "balance_of", "anyone",
-            &serde_json::json!({"address": "owner"}),
-        ).unwrap();
+        let result = reg
+            .call(
+                &addr,
+                "balance_of",
+                "anyone",
+                &serde_json::json!({"address": "owner"}),
+            )
+            .unwrap();
         assert_eq!(result["balance"], 1_000_000_000);
     }
 
     #[test]
     fn test_dispatch_get_info() {
         let (mut reg, addr) = setup_registry();
-        let result = reg.call(&addr, "get_info", "anyone", &serde_json::json!({})).unwrap();
+        let result = reg
+            .call(&addr, "get_info", "anyone", &serde_json::json!({}))
+            .unwrap();
         assert_eq!(result["symbol"], "FPT");
         assert_eq!(result["holders"], 1);
     }
@@ -610,10 +724,8 @@ mod tests {
     #[test]
     fn test_burn_via_dispatch() {
         let (mut reg, addr) = setup_registry();
-        reg.call(
-            &addr, "burn", "owner",
-            &serde_json::json!({"amount": 500}),
-        ).unwrap();
+        reg.call(&addr, "burn", "owner", &serde_json::json!({"amount": 500}))
+            .unwrap();
         let c = reg.get_contract(&addr).unwrap();
         assert_eq!(c.total_supply, 999_999_500);
     }
@@ -640,7 +752,12 @@ mod tests {
         // Change from 500 → 200 directly: should FAIL (race condition prevention)
         let result = c.approve("owner", "spender", 200);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("must set allowance to 0"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("must set allowance to 0")
+        );
 
         // Reset to 0 first, then set new value: should succeed
         c.approve("owner", "spender", 0).unwrap();
@@ -660,7 +777,11 @@ mod tests {
         let result = c.mint("not_owner", "alice", 1_000);
         assert!(result.is_err());
         let err_str = result.unwrap_err().to_string();
-        assert!(err_str.contains("owner"), "Expected owner error, got: {}", err_str);
+        assert!(
+            err_str.contains("owner"),
+            "Expected owner error, got: {}",
+            err_str
+        );
         // Balance unchanged
         assert_eq!(c.balance_of("alice"), 0);
     }
@@ -695,7 +816,9 @@ mod tests {
         // Verify that ContractRegistry::deploy() still works correctly after M-05 fix:
         // deploy calls mint(deployer, deployer, supply) — deployer is owner so it passes.
         let mut reg = ContractRegistry::new();
-        let addr = reg.deploy("alice", "AliceCoin", "ALC", 18, 500_000, 0, "seed_alc").unwrap();
+        let addr = reg
+            .deploy("alice", "AliceCoin", "ALC", 18, 500_000, 0, "seed_alc")
+            .unwrap();
         let c = reg.get_contract(&addr).unwrap();
         assert_eq!(c.owner, "alice");
         assert_eq!(c.balance_of("alice"), 500_000);
@@ -732,7 +855,15 @@ mod tests {
     fn test_l03_deploy_name_too_long() {
         let mut reg = ContractRegistry::new();
         let long_name = "A".repeat(65); // 65 chars — exceeds 64 limit
-        let result = reg.deploy("deployer", &long_name, "TKN", 8, 1_000_000, 0, "seed_long_name");
+        let result = reg.deploy(
+            "deployer",
+            &long_name,
+            "TKN",
+            8,
+            1_000_000,
+            0,
+            "seed_long_name",
+        );
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("name"), "error should mention 'name': {err}");
@@ -742,10 +873,21 @@ mod tests {
     fn test_l03_deploy_symbol_too_long() {
         let mut reg = ContractRegistry::new();
         let long_sym = "ABCDEFGHIJK"; // 11 chars — exceeds 10 limit
-        let result = reg.deploy("deployer", "ValidName", long_sym, 8, 1_000_000, 0, "seed_long_sym");
+        let result = reg.deploy(
+            "deployer",
+            "ValidName",
+            long_sym,
+            8,
+            1_000_000,
+            0,
+            "seed_long_sym",
+        );
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("symbol"), "error should mention 'symbol': {err}");
+        assert!(
+            err.contains("symbol"),
+            "error should mention 'symbol': {err}"
+        );
     }
 
     #[test]
@@ -756,7 +898,10 @@ mod tests {
         assert!(reg.deploy("d", "Name", "TK$N", 8, 0, 0, "seed2").is_err());
         assert!(reg.deploy("d", "Name", "", 8, 0, 0, "seed3").is_err());
         // Valid symbol must succeed
-        assert!(reg.deploy("d", "Name", "TKN", 8, 1_000_000, 0, "seed4").is_ok());
+        assert!(
+            reg.deploy("d", "Name", "TKN", 8, 1_000_000, 0, "seed4")
+                .is_ok()
+        );
     }
 
     // ── V5-02: Token max_supply cap tests ────────────────
@@ -765,7 +910,17 @@ mod tests {
     fn test_v502_mint_within_cap_succeeds() {
         let mut reg = ContractRegistry::new();
         // Deploy with max_supply=2_000_000 and initial supply=1_000_000
-        let addr = reg.deploy("owner", "CappedToken", "CAP", 18, 1_000_000, 2_000_000, "seed_cap1").unwrap();
+        let addr = reg
+            .deploy(
+                "owner",
+                "CappedToken",
+                "CAP",
+                18,
+                1_000_000,
+                2_000_000,
+                "seed_cap1",
+            )
+            .unwrap();
         let c = reg.get_contract(&addr).unwrap();
         assert_eq!(c.max_supply, 2_000_000);
         assert_eq!(c.total_supply, 1_000_000);
@@ -780,23 +935,47 @@ mod tests {
     fn test_v502_mint_exceeds_cap_rejected() {
         let mut reg = ContractRegistry::new();
         // max_supply=1_000_000, initial supply=1_000_000 (already at cap)
-        let addr = reg.deploy("owner", "CappedToken", "CAP", 18, 1_000_000, 1_000_000, "seed_cap2").unwrap();
+        let addr = reg
+            .deploy(
+                "owner",
+                "CappedToken",
+                "CAP",
+                18,
+                1_000_000,
+                1_000_000,
+                "seed_cap2",
+            )
+            .unwrap();
 
         // Minting even 1 more must fail
         let result = reg.execute_mint(&addr, "owner", "owner", 1);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("max_supply"), "error should mention max_supply: {err}");
+        assert!(
+            err.contains("max_supply"),
+            "error should mention max_supply: {err}"
+        );
     }
 
     #[test]
     fn test_v502_unlimited_cap_allows_unbounded_mint() {
         let mut reg = ContractRegistry::new();
         // max_supply=0 means unlimited
-        let addr = reg.deploy("owner", "UnlimitedToken", "UNL", 18, 1_000_000, 0, "seed_unl").unwrap();
+        let addr = reg
+            .deploy(
+                "owner",
+                "UnlimitedToken",
+                "UNL",
+                18,
+                1_000_000,
+                0,
+                "seed_unl",
+            )
+            .unwrap();
 
         // Should mint any amount without restriction
-        reg.execute_mint(&addr, "owner", "owner", 1_000_000_000).unwrap();
+        reg.execute_mint(&addr, "owner", "owner", 1_000_000_000)
+            .unwrap();
         let c = reg.get_contract(&addr).unwrap();
         assert_eq!(c.total_supply, 1_001_000_000);
     }
@@ -804,7 +983,17 @@ mod tests {
     #[test]
     fn test_v502_max_supply_in_get_info() {
         let mut reg = ContractRegistry::new();
-        let addr = reg.deploy("owner", "TestToken", "TST", 8, 500_000, 1_000_000, "seed_tst").unwrap();
+        let addr = reg
+            .deploy(
+                "owner",
+                "TestToken",
+                "TST",
+                8,
+                500_000,
+                1_000_000,
+                "seed_tst",
+            )
+            .unwrap();
         let info = reg.get_contract(&addr).unwrap().get_info();
         assert_eq!(info["max_supply"], 1_000_000_u64);
         assert_eq!(info["total_supply"], 500_000_u64);
@@ -814,19 +1003,26 @@ mod tests {
     fn test_v502_deploy_supply_exceeding_max_supply_rejected() {
         let mut reg = ContractRegistry::new();
         // initial supply > max_supply should fail
-        let result = reg.deploy("owner", "Invalid", "INV", 18, 2_000_000, 1_000_000, "seed_inv");
+        let result = reg.deploy(
+            "owner", "Invalid", "INV", 18, 2_000_000, 1_000_000, "seed_inv",
+        );
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("supply") || err.contains("max"),
-            "Expected supply cap error, got: {}", err
+            "Expected supply cap error, got: {}",
+            err
         );
     }
 
     #[test]
     fn test_v502_mint_exactly_at_cap_succeeds() {
         let mut reg = ContractRegistry::new();
-        let addr = reg.deploy("owner", "ExactCap", "EXC", 18, 900_000, 1_000_000, "seed_exc").unwrap();
+        let addr = reg
+            .deploy(
+                "owner", "ExactCap", "EXC", 18, 900_000, 1_000_000, "seed_exc",
+            )
+            .unwrap();
         // Mint exactly to the cap (900k + 100k = 1M)
         assert!(reg.execute_mint(&addr, "owner", "owner", 100_000).is_ok());
         let c = reg.get_contract(&addr).unwrap();
@@ -840,7 +1036,11 @@ mod tests {
     #[test]
     fn test_v502_burn_reduces_supply_allowing_more_mint() {
         let mut reg = ContractRegistry::new();
-        let addr = reg.deploy("owner", "Burnable", "BRN", 18, 1_000_000, 1_000_000, "seed_brn").unwrap();
+        let addr = reg
+            .deploy(
+                "owner", "Burnable", "BRN", 18, 1_000_000, 1_000_000, "seed_brn",
+            )
+            .unwrap();
         // At cap — can't mint more
         assert!(reg.execute_mint(&addr, "owner", "owner", 1).is_err());
         // Burn some

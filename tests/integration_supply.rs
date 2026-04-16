@@ -79,7 +79,8 @@ fn test_supply_invariant_with_transactions() {
                 sentrix::core::blockchain::CHAIN_ID,
                 &sk,
                 &pk,
-            ).expect("Transaction::new");
+            )
+            .expect("Transaction::new");
             bc.add_to_mempool(tx).expect("add_to_mempool");
         }
         common::mine_block_with_mempool(&mut bc, &val.address);
@@ -117,7 +118,8 @@ fn test_supply_invariant_with_high_fees() {
                 sentrix::core::blockchain::CHAIN_ID,
                 &sk,
                 &pk,
-            ).expect("Transaction::new");
+            )
+            .expect("Transaction::new");
             bc.add_to_mempool(tx).expect("add_to_mempool");
         }
         common::mine_block_with_mempool(&mut bc, &val.address);
@@ -130,7 +132,10 @@ fn test_supply_invariant_with_high_fees() {
 fn test_total_minted_increases_by_block_reward() {
     let (mut bc, val) = common::setup_single_validator();
 
-    assert_eq!(bc.accounts.total_supply() + bc.accounts.total_burned, TOTAL_PREMINE);
+    assert_eq!(
+        bc.accounts.total_supply() + bc.accounts.total_burned,
+        TOTAL_PREMINE
+    );
 
     for n in 1..=5u64 {
         common::mine_empty_block(&mut bc, &val.address);
@@ -145,5 +150,8 @@ fn test_total_minted_increases_by_block_reward() {
 fn test_genesis_premine_is_total_initial_supply() {
     let (bc, _val) = common::setup_single_validator();
     let genesis_supply = bc.accounts.total_supply();
-    assert_eq!(genesis_supply, TOTAL_PREMINE, "genesis supply must equal TOTAL_PREMINE");
+    assert_eq!(
+        genesis_supply, TOTAL_PREMINE,
+        "genesis supply must equal TOTAL_PREMINE"
+    );
 }

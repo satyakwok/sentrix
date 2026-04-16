@@ -1,24 +1,24 @@
 // mempool.rs - Sentrix — Mempool management
 
 use crate::core::blockchain::{
-    Blockchain, is_valid_sentrix_address,
-    MAX_MEMPOOL_SIZE, MAX_MEMPOOL_PER_SENDER, MEMPOOL_MAX_AGE_SECS,
+    Blockchain, MAX_MEMPOOL_PER_SENDER, MAX_MEMPOOL_SIZE, MEMPOOL_MAX_AGE_SECS,
+    is_valid_sentrix_address,
 };
-use crate::core::transaction::{Transaction, TOKEN_OP_ADDRESS, TokenOp};
+use crate::core::transaction::{TOKEN_OP_ADDRESS, TokenOp, Transaction};
 use crate::types::error::{SentrixError, SentrixResult};
 
 impl Blockchain {
     pub fn add_to_mempool(&mut self, tx: Transaction) -> SentrixResult<()> {
         if tx.is_coinbase() {
             return Err(SentrixError::InvalidTransaction(
-                "cannot manually add coinbase to mempool".to_string()
+                "cannot manually add coinbase to mempool".to_string(),
             ));
         }
 
         // Global mempool size limit prevents RAM exhaustion under high transaction load
         if self.mempool.len() >= MAX_MEMPOOL_SIZE {
             return Err(SentrixError::InvalidTransaction(
-                "mempool full — try again later".to_string()
+                "mempool full — try again later".to_string(),
             ));
         }
 
@@ -26,15 +26,16 @@ impl Blockchain {
         let sender_pending = self.mempool_pending_count(&tx.from_address) as usize;
         if sender_pending >= MAX_MEMPOOL_PER_SENDER {
             return Err(SentrixError::InvalidTransaction(
-                "too many pending transactions from this sender".to_string()
+                "too many pending transactions from this sender".to_string(),
             ));
         }
 
         // Reject malformed to_address before any state is touched
         if !is_valid_sentrix_address(&tx.to_address) {
-            return Err(SentrixError::InvalidTransaction(
-                format!("invalid to_address: '{}'", tx.to_address)
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "invalid to_address: '{}'",
+                tx.to_address
+            )));
         }
 
         // Reject native SRX transfers to zero address — would silently destroy coins with no on-chain record.
@@ -42,7 +43,8 @@ impl Blockchain {
         // OR when this is an EVM CREATE tx (to=zero means contract creation).
         if tx.to_address == TOKEN_OP_ADDRESS && !TokenOp::is_token_op(&tx.data) && !tx.is_evm_tx() {
             return Err(SentrixError::InvalidTransaction(
-                "cannot send SRX to zero address — use TokenOp::Burn to explicitly burn tokens".to_string()
+                "cannot send SRX to zero address — use TokenOp::Burn to explicitly burn tokens"
+                    .to_string(),
             ));
         }
 
@@ -54,20 +56,22 @@ impl Blockchain {
             .as_secs();
         if tx.timestamp > now + 300 {
             return Err(SentrixError::InvalidTransaction(
-                "transaction timestamp too far in the future (max +5 min)".to_string()
+                "transaction timestamp too far in the future (max +5 min)".to_string(),
             ));
         }
         if now > tx.timestamp.saturating_add(MEMPOOL_MAX_AGE_SECS) {
-            return Err(SentrixError::InvalidTransaction(
-                format!("transaction too old — max age {} seconds", MEMPOOL_MAX_AGE_SECS)
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "transaction too old — max age {} seconds",
+                MEMPOOL_MAX_AGE_SECS
+            )));
         }
 
         // Reject duplicate txid — same transaction must not enter the mempool twice
         if self.mempool.iter().any(|existing| existing.txid == tx.txid) {
-            return Err(SentrixError::InvalidTransaction(
-                format!("duplicate txid in mempool: {}", tx.txid)
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "duplicate txid in mempool: {}",
+                tx.txid
+            )));
         }
 
         // Basic validation
@@ -77,13 +81,15 @@ impl Blockchain {
 
         // Check balance including pending mempool spends
         let pending_spend = self.mempool_pending_spend(&tx.from_address);
-        let available = self.accounts.get_balance(&tx.from_address)
+        let available = self
+            .accounts
+            .get_balance(&tx.from_address)
             .saturating_sub(pending_spend);
         // Checked addition prevents integer overflow on amount + fee
-        let needed = tx.amount.checked_add(tx.fee)
-            .ok_or_else(|| SentrixError::InvalidTransaction(
-                "amount + fee overflow".to_string()
-            ))?;
+        let needed = tx
+            .amount
+            .checked_add(tx.fee)
+            .ok_or_else(|| SentrixError::InvalidTransaction("amount + fee overflow".to_string()))?;
 
         if available < needed {
             return Err(SentrixError::InsufficientBalance {
@@ -97,7 +103,9 @@ impl Blockchain {
         // TODO: This linear scan + VecDeque::insert is O(n) per insertion.
         // At MAX_MEMPOOL_SIZE=10,000 this is ~50M ops/min under heavy load.
         // Future: replace with BinaryHeap<Transaction> (impl Ord by fee desc) for O(log n).
-        let pos = self.mempool.iter()
+        let pos = self
+            .mempool
+            .iter()
             .position(|existing| existing.fee < tx.fee)
             .unwrap_or(self.mempool.len());
         self.mempool.insert(pos, tx);
@@ -105,13 +113,15 @@ impl Blockchain {
     }
 
     fn mempool_pending_count(&self, address: &str) -> u64 {
-        self.mempool.iter()
+        self.mempool
+            .iter()
             .filter(|tx| tx.from_address == address)
             .count() as u64
     }
 
     fn mempool_pending_spend(&self, address: &str) -> u64 {
-        self.mempool.iter()
+        self.mempool
+            .iter()
             .filter(|tx| tx.from_address == address)
             .map(|tx| tx.amount.saturating_add(tx.fee))
             .fold(0u64, |acc, v| acc.saturating_add(v))
@@ -128,7 +138,8 @@ impl Blockchain {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        self.mempool.retain(|tx| now <= tx.timestamp.saturating_add(MEMPOOL_MAX_AGE_SECS));
+        self.mempool
+            .retain(|tx| now <= tx.timestamp.saturating_add(MEMPOOL_MAX_AGE_SECS));
     }
 }
 
@@ -136,10 +147,10 @@ impl Blockchain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use secp256k1::{Secp256k1, SecretKey, PublicKey};
-    use secp256k1::rand::rngs::OsRng;
-    use crate::core::transaction::{Transaction, MIN_TX_FEE};
     use crate::core::blockchain::{Blockchain, CHAIN_ID};
+    use crate::core::transaction::{MIN_TX_FEE, Transaction};
+    use secp256k1::rand::rngs::OsRng;
+    use secp256k1::{PublicKey, Secp256k1, SecretKey};
 
     fn make_keypair() -> (SecretKey, PublicKey) {
         let secp = Secp256k1::new();
@@ -152,7 +163,8 @@ mod tests {
 
     fn setup() -> Blockchain {
         let mut bc = Blockchain::new("admin".to_string());
-        bc.authority.add_validator_unchecked("v1".to_string(), "V1".to_string(), "pk1".to_string());
+        bc.authority
+            .add_validator_unchecked("v1".to_string(), "V1".to_string(), "pk1".to_string());
         bc
     }
 
@@ -166,9 +178,17 @@ mod tests {
         let sender = derive_addr(&pk);
         bc.accounts.credit(&sender, 1_000_000_000).unwrap();
         let tx = Transaction::new(
-            sender, TOKEN_OP_ADDRESS.to_string(),
-            100_000_000, MIN_TX_FEE, 0, String::new(), CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            sender,
+            TOKEN_OP_ADDRESS.to_string(),
+            100_000_000,
+            MIN_TX_FEE,
+            0,
+            String::new(),
+            CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         let result = bc.add_to_mempool(tx);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -184,14 +204,25 @@ mod tests {
         bc.accounts.credit(&sender, 1_000_000_000).unwrap();
         // Deploy a dummy token first so the contract exists for transfer
         let token_op = TokenOp::Deploy {
-            name: "TestToken".to_string(), symbol: "TTK".to_string(),
-            decimals: 8, supply: 1_000_000, max_supply: 0,
+            name: "TestToken".to_string(),
+            symbol: "TTK".to_string(),
+            decimals: 8,
+            supply: 1_000_000,
+            max_supply: 0,
         };
         let data = token_op.encode().unwrap();
         let tx = Transaction::new(
-            sender, TOKEN_OP_ADDRESS.to_string(),
-            0, MIN_TX_FEE, 0, data, CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            sender,
+            TOKEN_OP_ADDRESS.to_string(),
+            0,
+            MIN_TX_FEE,
+            0,
+            data,
+            CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         // This should succeed — to_address is zero address but data is a valid TokenOp
         assert!(bc.add_to_mempool(tx).is_ok());
     }
@@ -204,14 +235,23 @@ mod tests {
         let sender = derive_addr(&pk);
         bc.accounts.credit(&sender, 1_000_000_000).unwrap();
         let mut tx = Transaction::new(
-            sender, RECV.to_string(),
-            100_000, MIN_TX_FEE, 0, String::new(), CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            sender,
+            RECV.to_string(),
+            100_000,
+            MIN_TX_FEE,
+            0,
+            String::new(),
+            CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         // Manually set timestamp 10 minutes into the future
         tx.timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs() + 600;
+            .as_secs()
+            + 600;
         assert!(bc.add_to_mempool(tx).is_err());
     }
 
@@ -227,11 +267,29 @@ mod tests {
         bc.accounts.credit(&sender2, 1_000_000_000).unwrap();
 
         let low_fee = Transaction::new(
-            sender1, RECV.to_string(), 100_000, MIN_TX_FEE, 0, String::new(), CHAIN_ID, &sk1, &pk1,
-        ).unwrap();
+            sender1,
+            RECV.to_string(),
+            100_000,
+            MIN_TX_FEE,
+            0,
+            String::new(),
+            CHAIN_ID,
+            &sk1,
+            &pk1,
+        )
+        .unwrap();
         let high_fee = Transaction::new(
-            sender2, RECV.to_string(), 100_000, MIN_TX_FEE * 10, 0, String::new(), CHAIN_ID, &sk2, &pk2,
-        ).unwrap();
+            sender2,
+            RECV.to_string(),
+            100_000,
+            MIN_TX_FEE * 10,
+            0,
+            String::new(),
+            CHAIN_ID,
+            &sk2,
+            &pk2,
+        )
+        .unwrap();
 
         bc.add_to_mempool(low_fee).unwrap();
         bc.add_to_mempool(high_fee).unwrap();

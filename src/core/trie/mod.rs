@@ -7,7 +7,7 @@ pub mod proof;
 pub mod storage;
 pub mod tree;
 
-pub use address::{address_to_key, account_value_bytes, account_value_decode};
-pub use node::{NodeHash, TrieNode, NULL_HASH, empty_hash, hash_leaf, hash_internal, get_bit};
+pub use address::{account_value_bytes, account_value_decode, address_to_key};
+pub use node::{NULL_HASH, NodeHash, TrieNode, empty_hash, get_bit, hash_internal, hash_leaf};
 pub use proof::MerkleProof;
 pub use tree::SentrixTrie;

@@ -1,7 +1,7 @@
 // trie/proof.rs - Sentrix — Merkle proof types and verification
 
-use serde::{Serialize, Deserialize};
-use crate::core::trie::node::{NodeHash, hash_leaf, hash_internal, get_bit};
+use crate::core::trie::node::{NodeHash, get_bit, hash_internal, hash_leaf};
+use serde::{Deserialize, Serialize};
 
 /// A Merkle proof for a key in the SentrixTrie.
 ///
@@ -112,9 +112,17 @@ mod tests {
         let mut h = terminal;
         // d=1 first (rev order: d=1, d=0)
         let bit1 = get_bit(&key, 1);
-        h = if bit1 { hash_internal(&sibling1, &h) } else { hash_internal(&h, &sibling1) };
+        h = if bit1 {
+            hash_internal(&sibling1, &h)
+        } else {
+            hash_internal(&h, &sibling1)
+        };
         let bit0 = get_bit(&key, 0);
-        let root = if bit0 { hash_internal(&sibling0, &h) } else { hash_internal(&h, &sibling0) };
+        let root = if bit0 {
+            hash_internal(&sibling0, &h)
+        } else {
+            hash_internal(&h, &sibling0)
+        };
 
         let proof = MerkleProof {
             key,

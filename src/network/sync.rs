@@ -1,7 +1,7 @@
 // sync.rs - Sentrix — Chain synchronization
 
 use crate::core::block::Block;
-use crate::network::node::{Node, Message, SharedBlockchain};
+use crate::network::node::{Message, Node, SharedBlockchain};
 use crate::storage::db::Storage;
 use crate::types::error::{SentrixError, SentrixResult};
 use std::sync::Arc;
@@ -19,7 +19,8 @@ impl ChainSync {
         blockchain: &SharedBlockchain,
         storage: Arc<Storage>,
     ) -> SentrixResult<u64> {
-        let mut stream = TcpStream::connect(peer_addr).await
+        let mut stream = TcpStream::connect(peer_addr)
+            .await
             .map_err(|e| SentrixError::NetworkError(e.to_string()))?;
 
         // Handshake
@@ -37,14 +38,17 @@ impl ChainSync {
 
         // Validate chain_id in peer handshake to prevent cross-network peer connections
         let (peer_height, peer_chain_id) = match Node::read_message(&mut stream).await? {
-            Message::Handshake { height, chain_id, .. } => (height, chain_id),
+            Message::Handshake {
+                height, chain_id, ..
+            } => (height, chain_id),
             _ => return Err(SentrixError::NetworkError("expected handshake".to_string())),
         };
         let our_chain_id = blockchain.read().await.chain_id;
         if peer_chain_id != our_chain_id {
-            return Err(SentrixError::NetworkError(
-                format!("sync: chain_id mismatch — peer {} vs ours {}", peer_chain_id, our_chain_id)
-            ));
+            return Err(SentrixError::NetworkError(format!(
+                "sync: chain_id mismatch — peer {} vs ours {}",
+                peer_chain_id, our_chain_id
+            )));
         }
         if peer_height <= our_height {
             return Ok(0);
@@ -55,7 +59,9 @@ impl ChainSync {
         let mut current = our_height + 1;
 
         while current <= peer_height {
-            let get_blocks = Message::GetBlocks { from_height: current };
+            let get_blocks = Message::GetBlocks {
+                from_height: current,
+            };
             Node::send_message(&mut stream, &get_blocks).await?;
 
             match Node::read_message(&mut stream).await? {
@@ -69,7 +75,8 @@ impl ChainSync {
                         if block.index != current {
                             tracing::warn!(
                                 "Sync: expected block index {}, got {} — aborting sync",
-                                current, block.index
+                                current,
+                                block.index
                             );
                             return Ok(total_synced);
                         }
@@ -77,7 +84,11 @@ impl ChainSync {
                             Ok(()) => {
                                 // Persist each synced block to sled immediately rather than batching
                                 if let Err(e) = storage.save_block(block) {
-                                    tracing::warn!("Sync: failed to persist block {}: {}", block.index, e);
+                                    tracing::warn!(
+                                        "Sync: failed to persist block {}: {}",
+                                        block.index,
+                                        e
+                                    );
                                     return Ok(total_synced);
                                 }
                                 total_synced += 1;
@@ -103,14 +114,17 @@ impl ChainSync {
 
     /// Quick height check.
     pub async fn get_peer_height(peer_addr: &str) -> SentrixResult<u64> {
-        let mut stream = TcpStream::connect(peer_addr).await
+        let mut stream = TcpStream::connect(peer_addr)
+            .await
             .map_err(|e| SentrixError::NetworkError(e.to_string()))?;
 
         Node::send_message(&mut stream, &Message::GetHeight).await?;
 
         match Node::read_message(&mut stream).await? {
             Message::HeightResponse { height } => Ok(height),
-            _ => Err(SentrixError::NetworkError("unexpected response".to_string())),
+            _ => Err(SentrixError::NetworkError(
+                "unexpected response".to_string(),
+            )),
         }
     }
 
@@ -121,19 +135,22 @@ impl ChainSync {
             let prev = &blocks[i - 1];
 
             if block.index != prev.index + 1 {
-                return Err(SentrixError::ChainValidationFailed(
-                    format!("block index gap at {}", i)
-                ));
+                return Err(SentrixError::ChainValidationFailed(format!(
+                    "block index gap at {}",
+                    i
+                )));
             }
             if block.previous_hash != prev.hash {
-                return Err(SentrixError::ChainValidationFailed(
-                    format!("broken hash link at block {}", block.index)
-                ));
+                return Err(SentrixError::ChainValidationFailed(format!(
+                    "broken hash link at block {}",
+                    block.index
+                )));
             }
             if !block.is_valid_hash() {
-                return Err(SentrixError::ChainValidationFailed(
-                    format!("invalid hash at block {}", block.index)
-                ));
+                return Err(SentrixError::ChainValidationFailed(format!(
+                    "invalid hash at block {}",
+                    block.index
+                )));
             }
         }
         Ok(())

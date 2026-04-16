@@ -1,11 +1,11 @@
 // trie/tree.rs - Sentrix — Binary Sparse Merkle Tree (256-level, iterative)
 
-use sled::Db;
 use crate::core::trie::cache::TrieCache;
-use crate::core::trie::node::{NodeHash, TrieNode, empty_hash, hash_leaf, hash_internal, get_bit};
+use crate::core::trie::node::{NodeHash, TrieNode, empty_hash, get_bit, hash_internal, hash_leaf};
 use crate::core::trie::proof::MerkleProof;
 use crate::core::trie::storage::TrieStorage;
 use crate::types::error::{SentrixError, SentrixResult};
+use sled::Db;
 
 /// Binary Sparse Merkle Tree with 256 levels.
 ///
@@ -27,11 +27,13 @@ impl SentrixTrie {
     /// Loads the stored root for that version; uses the empty-tree root if none exists.
     pub fn open(db: &Db, version: u64) -> SentrixResult<Self> {
         let storage = TrieStorage::new(db)?;
-        let root = storage
-            .load_root(version)?
-            .unwrap_or_else(|| empty_hash(0));
+        let root = storage.load_root(version)?.unwrap_or_else(|| empty_hash(0));
         let cache = TrieCache::new(storage, 10_000);
-        Ok(Self { cache, root, version })
+        Ok(Self {
+            cache,
+            root,
+            version,
+        })
     }
 
     // ── Public accessors ─────────────────────────────────
@@ -75,18 +77,15 @@ impl SentrixTrie {
                 break;
             }
 
-            let node = self
-                .cache
-                .get_node(&current)?
-                .ok_or_else(|| {
-                    SentrixError::Internal(format!(
-                        "trie: missing node {}",
-                        hex::encode(current)
-                    ))
-                })?;
+            let node = self.cache.get_node(&current)?.ok_or_else(|| {
+                SentrixError::Internal(format!("trie: missing node {}", hex::encode(current)))
+            })?;
 
             match node {
-                TrieNode::Leaf { key: leaf_key, value_hash: leaf_vh } => {
+                TrieNode::Leaf {
+                    key: leaf_key,
+                    value_hash: leaf_vh,
+                } => {
                     if leaf_key == *key {
                         // Same key — update in place; path already covers the descent.
                         // T-B: capture the old leaf hash (= current) for cleanup below,
@@ -121,7 +120,8 @@ impl SentrixTrie {
                     // get_bit(key, 256) would be out of bounds — an Internal node at depth 256 indicates corruption
                     if depth >= 256 {
                         return Err(SentrixError::Internal(
-                            "trie: corrupt tree — Internal node at depth 256 (key space exhausted)".into(),
+                            "trie: corrupt tree — Internal node at depth 256 (key space exhausted)"
+                                .into(),
                         ));
                     }
                     // Record this internal node so it can be cleaned up when structurally replaced.
@@ -136,7 +136,10 @@ impl SentrixTrie {
         }
 
         // Phase 2 — store the new leaf.
-        let new_leaf = TrieNode::Leaf { key: *key, value_hash: new_value_hash };
+        let new_leaf = TrieNode::Leaf {
+            key: *key,
+            value_hash: new_value_hash,
+        };
         self.cache.put_node(new_value_hash, new_leaf)?;
         self.cache.store_value(&new_value_hash, value)?;
 
@@ -156,7 +159,11 @@ impl SentrixTrie {
                 (up_hash, *sibling)
             };
             up_hash = hash_internal(&left, &right);
-            let node = TrieNode::Internal { left, right, hash: up_hash };
+            let node = TrieNode::Internal {
+                left,
+                right,
+                hash: up_hash,
+            };
             self.cache.put_node(up_hash, node)?;
         }
 
@@ -190,18 +197,15 @@ impl SentrixTrie {
                 return Ok(None);
             }
 
-            let node = self
-                .cache
-                .get_node(&current)?
-                .ok_or_else(|| {
-                    SentrixError::Internal(format!(
-                        "trie: missing node {}",
-                        hex::encode(current)
-                    ))
-                })?;
+            let node = self.cache.get_node(&current)?.ok_or_else(|| {
+                SentrixError::Internal(format!("trie: missing node {}", hex::encode(current)))
+            })?;
 
             match node {
-                TrieNode::Leaf { key: leaf_key, value_hash } => {
+                TrieNode::Leaf {
+                    key: leaf_key,
+                    value_hash,
+                } => {
                     if leaf_key == *key {
                         return self.cache.load_value(&value_hash);
                     }
@@ -244,18 +248,15 @@ impl SentrixTrie {
                 return Ok(self.root); // empty subtree — key absent
             }
 
-            let node = self
-                .cache
-                .get_node(&current)?
-                .ok_or_else(|| {
-                    SentrixError::Internal(format!(
-                        "trie: missing node {}",
-                        hex::encode(current)
-                    ))
-                })?;
+            let node = self.cache.get_node(&current)?.ok_or_else(|| {
+                SentrixError::Internal(format!("trie: missing node {}", hex::encode(current)))
+            })?;
 
             match node {
-                TrieNode::Leaf { key: leaf_key, value_hash: leaf_vh } => {
+                TrieNode::Leaf {
+                    key: leaf_key,
+                    value_hash: leaf_vh,
+                } => {
                     if leaf_key != *key {
                         return Ok(self.root); // different leaf — key absent
                     }
@@ -303,8 +304,14 @@ impl SentrixTrie {
                 up_hash = empty_hash(up_depth);
             } else {
                 up_hash = hash_internal(&left, &right);
-                self.cache
-                    .put_node(up_hash, TrieNode::Internal { left, right, hash: up_hash })?;
+                self.cache.put_node(
+                    up_hash,
+                    TrieNode::Internal {
+                        left,
+                        right,
+                        hash: up_hash,
+                    },
+                )?;
             }
         }
 
@@ -355,7 +362,10 @@ impl SentrixTrie {
                 .ok_or_else(|| SentrixError::Internal("trie: missing node in prove".into()))?;
 
             match node {
-                TrieNode::Leaf { key: leaf_key, value_hash } => {
+                TrieNode::Leaf {
+                    key: leaf_key,
+                    value_hash,
+                } => {
                     if leaf_key == *key {
                         let value = self.cache.load_value(&value_hash)?.unwrap_or_default();
                         let terminal_hash = hash_leaf(key, &value);
@@ -425,7 +435,10 @@ impl SentrixTrie {
     ///
     /// Returns `(roots_pruned, nodes_gc'd)`.
     pub fn prune(&self, keep_versions: u64) -> SentrixResult<(usize, usize)> {
-        let roots_pruned = self.cache.storage.prune_old_roots(self.version, keep_versions)?;
+        let roots_pruned = self
+            .cache
+            .storage
+            .prune_old_roots(self.version, keep_versions)?;
         if roots_pruned == 0 {
             return Ok((0, 0));
         }
@@ -448,7 +461,8 @@ impl SentrixTrie {
         let nodes_gc = self.cache.storage.gc_orphaned_nodes(&live)?;
         tracing::info!(
             "trie prune: removed {} old roots, GC'd {} orphaned entries",
-            roots_pruned, nodes_gc
+            roots_pruned,
+            nodes_gc
         );
         Ok((roots_pruned, nodes_gc))
     }
@@ -515,8 +529,8 @@ impl Clone for SentrixTrie {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::trie::address::{account_value_bytes, account_value_decode, address_to_key};
     use crate::core::trie::node::NULL_HASH;
-    use crate::core::trie::address::{address_to_key, account_value_bytes, account_value_decode};
 
     fn temp_db() -> (tempfile::TempDir, Db) {
         let dir = tempfile::TempDir::new().unwrap();
@@ -635,8 +649,9 @@ mod tests {
         let mut trie = SentrixTrie::open(&db, 0).unwrap();
         // Insert one key, prove a different one is absent
         let key_present = address_to_key("0xaaaa");
-        let key_absent  = address_to_key("0xbbbb");
-        trie.insert(&key_present, &account_value_bytes(1, 0)).unwrap();
+        let key_absent = address_to_key("0xbbbb");
+        trie.insert(&key_present, &account_value_bytes(1, 0))
+            .unwrap();
         let root = trie.root_hash();
         let proof = trie.prove(&key_absent).unwrap();
         assert!(!proof.found);
@@ -686,14 +701,18 @@ mod tests {
     fn test_custom_capacity_trie_functional() {
         let (_dir, db) = temp_db();
         // Use a tiny capacity to exercise LRU eviction; correctness must be preserved
-        let storage  = crate::core::trie::storage::TrieStorage::new(&db).unwrap();
-        let root     = crate::core::trie::storage::TrieStorage::new(&db)
+        let storage = crate::core::trie::storage::TrieStorage::new(&db).unwrap();
+        let root = crate::core::trie::storage::TrieStorage::new(&db)
             .unwrap()
             .load_root(0)
             .unwrap()
             .unwrap_or_else(|| empty_hash(0));
-        let cache    = crate::core::trie::cache::TrieCache::new(storage, 4);
-        let mut trie = SentrixTrie { cache, root, version: 0 };
+        let cache = crate::core::trie::cache::TrieCache::new(storage, 4);
+        let mut trie = SentrixTrie {
+            cache,
+            root,
+            version: 0,
+        };
 
         let k1 = address_to_key("0xaaaa");
         let k2 = address_to_key("0xbbbb");
@@ -751,11 +770,15 @@ mod tests {
             "delete must reduce node count (leaf removed)"
         );
         assert_eq!(
-            values_after_delete, values_after_insert - 1,
+            values_after_delete,
+            values_after_insert - 1,
             "delete must remove the value blob"
         );
         // Verify the key is actually gone
-        assert!(trie.get(&key).unwrap().is_none(), "deleted key must not be found");
+        assert!(
+            trie.get(&key).unwrap().is_none(),
+            "deleted key must not be found"
+        );
     }
 
     /// insert cleans up old internal nodes when a structural relink is required.
@@ -783,7 +806,8 @@ mod tests {
         assert!(
             nodes_3 <= nodes_2 + 1,
             "update must not accumulate internal nodes without bound (nodes_2={}, nodes_3={})",
-            nodes_2, nodes_3
+            nodes_2,
+            nodes_3
         );
 
         // Both keys still readable
@@ -851,8 +875,12 @@ mod tests {
     fn test_clone_preserves_capacity() {
         let (_dir, db) = temp_db();
         let storage = crate::core::trie::storage::TrieStorage::new(&db).unwrap();
-        let cache   = crate::core::trie::cache::TrieCache::new(storage, 42);
-        let trie = SentrixTrie { cache, root: empty_hash(0), version: 0 };
+        let cache = crate::core::trie::cache::TrieCache::new(storage, 42);
+        let trie = SentrixTrie {
+            cache,
+            root: empty_hash(0),
+            version: 0,
+        };
 
         let cloned = trie.clone();
         assert_eq!(cloned.cache.capacity, 42, "clone must preserve capacity");

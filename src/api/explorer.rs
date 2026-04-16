@@ -1,40 +1,55 @@
 // explorer.rs - Sentrix — Block Explorer Web UI
 
+use crate::api::routes::SharedState;
 use axum::{
-    extract::{State, Path},
-    response::Html,
     Json,
+    extract::{Path, State},
+    response::Html,
 };
 use serde::Serialize;
-use crate::api::routes::SharedState;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex as TokioMutex;
 
-struct CachedPage { html: String, at: Instant }
+struct CachedPage {
+    html: String,
+    at: Instant,
+}
 static HOME_CACHE: OnceLock<TokioMutex<Option<CachedPage>>> = OnceLock::new();
 static RICHLIST_CACHE: OnceLock<TokioMutex<Option<CachedPage>>> = OnceLock::new();
 
 #[derive(Serialize, Clone)]
-pub struct DailyStat { pub date: String, pub blocks: u64, pub transactions: u64 }
-struct DailyCache { data: Vec<DailyStat>, at: Instant }
+pub struct DailyStat {
+    pub date: String,
+    pub blocks: u64,
+    pub transactions: u64,
+}
+struct DailyCache {
+    data: Vec<DailyStat>,
+    at: Instant,
+}
 static DAILY_CACHE: OnceLock<TokioMutex<Option<DailyCache>>> = OnceLock::new();
 
 // HTML-escape all user-facing values to prevent XSS injection in explorer pages
 pub fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
-     .replace('\'', "&#x27;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
 }
 
 fn truncate(s: &str, n: usize) -> String {
-    if s.len() <= n { s.to_string() }
-    else { format!("{}…", &s[..n]) }
+    if s.len() <= n {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..n])
+    }
 }
 
-fn srx(sentri: u64) -> f64 { sentri as f64 / 100_000_000.0 }
+fn srx(sentri: u64) -> f64 {
+    sentri as f64 / 100_000_000.0
+}
 
 /// Known address labels
 fn address_label(addr: &str) -> Option<&'static str> {
@@ -56,7 +71,8 @@ fn addr_with_label(addr: &str) -> String {
     match address_label(addr) {
         Some(label) => format!(
             r#"{} <span style="background:#1a2a1a;color:#4ade80;font-size:11px;padding:1px 6px;border-radius:4px;margin-left:4px">{}</span>"#,
-            html_escape(addr), label
+            html_escape(addr),
+            label
         ),
         None => html_escape(addr).to_string(),
     }
@@ -67,7 +83,7 @@ fn fmt_ts(unix: u64) -> String {
     const WIB: u64 = 7 * 3600;
     let t = unix + WIB;
     let secs_in_day = t % 86400;
-    let days_total  = t / 86400;                        // days since 1970-01-01
+    let days_total = t / 86400; // days since 1970-01-01
 
     let hh = secs_in_day / 3600;
     let mm = (secs_in_day % 3600) / 60;
@@ -76,20 +92,43 @@ fn fmt_ts(unix: u64) -> String {
     let mut y = 1970u64;
     let mut d = days_total;
     loop {
-        let dy = if (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400) { 366 } else { 365 };
-        if d < dy { break; }
+        let dy = if (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400) {
+            366
+        } else {
+            365
+        };
+        if d < dy {
+            break;
+        }
         d -= dy;
         y += 1;
     }
     let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
-    let days_in_month = [31u64, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let days_in_month = [
+        31u64,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut m = 0usize;
     for &dim in &days_in_month {
-        if d < dim { break; }
+        if d < dim {
+            break;
+        }
         d -= dim;
         m += 1;
     }
-    let month = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m];
+    let month = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ][m];
     format!("{} {} {}, {:02}:{:02} WIB", d + 1, month, y, hh, mm)
 }
 
@@ -141,16 +180,37 @@ fn fmt_day(day_key: u64) -> String {
     let mut d = day_key;
     let mut y = 1970u64;
     loop {
-        let dy = if (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400) { 366 } else { 365 };
-        if d < dy { break; }
+        let dy = if (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400) {
+            366
+        } else {
+            365
+        };
+        if d < dy {
+            break;
+        }
         d -= dy;
         y += 1;
     }
     let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
-    let dims = [31u64, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let dims = [
+        31u64,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut m = 0usize;
     for &dim in &dims {
-        if d < dim { break; }
+        if d < dim {
+            break;
+        }
         d -= dim;
         m += 1;
     }
@@ -234,7 +294,8 @@ const CHART_SECTION: &str = r#"
 
 fn page(title: &str, body: &str) -> Html<String> {
     let chain_id = crate::core::blockchain::get_chain_id();
-    Html(format!(r#"<!DOCTYPE html>
+    Html(format!(
+        r#"<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>{title} — Sentrix Explorer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>{CSS}</style></head><body>
@@ -261,18 +322,19 @@ document.getElementById('srx-search').addEventListener('keydown',function(e){{if
 </script>
 </div></header>
 <div class="container">{body}</div>
-</body></html>"#))
+</body></html>"#
+    ))
 }
 
 fn nav_tabs(active: &str) -> String {
     let tabs = [
-        ("Home",         "/explorer",              "home"),
-        ("Blocks",       "/explorer/blocks",       "blocks"),
+        ("Home", "/explorer", "home"),
+        ("Blocks", "/explorer/blocks", "blocks"),
         ("Transactions", "/explorer/transactions", "transactions"),
-        ("Validators",   "/explorer/validators",   "validators"),
-        ("Tokens",       "/explorer/tokens",       "tokens"),
-        ("Rich List",    "/explorer/richlist",     "richlist"),
-        ("Mempool",      "/explorer/mempool",      "mempool"),
+        ("Validators", "/explorer/validators", "validators"),
+        ("Tokens", "/explorer/tokens", "tokens"),
+        ("Rich List", "/explorer/richlist", "richlist"),
+        ("Mempool", "/explorer/mempool", "mempool"),
     ];
     let mut html = String::from(r#"<div class="tabs">"#);
     for (label, href, key) in &tabs {
@@ -289,7 +351,9 @@ pub async fn explorer_home(State(state): State<SharedState>) -> Html<String> {
     let cache = HOME_CACHE.get_or_init(|| TokioMutex::new(None));
     {
         let guard = cache.lock().await;
-        if let Some(ref c) = *guard && c.at.elapsed() < HOME_TTL {
+        if let Some(ref c) = *guard
+            && c.at.elapsed() < HOME_TTL
+        {
             return Html(c.html.clone());
         }
     }
@@ -307,12 +371,20 @@ pub async fn explorer_home(State(state): State<SharedState>) -> Html<String> {
 
     for i in 0..=height {
         if let Some(block) = bc.get_block(i) {
-            let non_cb = block.transactions.iter().filter(|t| !t.is_coinbase()).count() as u64;
+            let non_cb = block
+                .transactions
+                .iter()
+                .filter(|t| !t.is_coinbase())
+                .count() as u64;
             total_regular_txs += non_cb;
             if i >= sample_start {
                 sample_regular_txs += non_cb;
-                if i == sample_start { sample_oldest_ts = block.timestamp; }
-                if i == height       { sample_newest_ts = block.timestamp; }
+                if i == sample_start {
+                    sample_oldest_ts = block.timestamp;
+                }
+                if i == height {
+                    sample_newest_ts = block.timestamp;
+                }
             }
         }
     }
@@ -344,16 +416,20 @@ pub async fn explorer_home(State(state): State<SharedState>) -> Html<String> {
                 <td>{}</td>
                 <td class="mono"><a href="/explorer/address/{}">{}</a></td>
                 </tr>"#,
-                block.index, block.index,
-                block.index, html_escape(&truncate(&block.hash, 16)),
+                block.index,
+                block.index,
+                block.index,
+                html_escape(&truncate(&block.hash, 16)),
                 html_escape(&fmt_ts(block.timestamp)),
                 block.tx_count(),
-                html_escape(&block.validator), html_escape(&truncate(&block.validator, 20)),
+                html_escape(&block.validator),
+                html_escape(&truncate(&block.validator, 20)),
             ));
         }
     }
 
-    let body = format!(r#"
+    let body = format!(
+        r#"
     <div class="stats">
         <div class="stat-card">
             <div class="label">Block Height</div>
@@ -413,8 +489,14 @@ pub async fn explorer_home(State(state): State<SharedState>) -> Html<String> {
 
     let result = page("Home", &body);
     {
-        let mut guard = HOME_CACHE.get_or_init(|| TokioMutex::new(None)).lock().await;
-        *guard = Some(CachedPage { html: result.0.clone(), at: Instant::now() });
+        let mut guard = HOME_CACHE
+            .get_or_init(|| TokioMutex::new(None))
+            .lock()
+            .await;
+        *guard = Some(CachedPage {
+            html: result.0.clone(),
+            at: Instant::now(),
+        });
     }
     result
 }
@@ -425,7 +507,9 @@ pub async fn stats_daily(State(state): State<SharedState>) -> Json<Vec<DailyStat
     let cache = DAILY_CACHE.get_or_init(|| TokioMutex::new(None));
     {
         let guard = cache.lock().await;
-        if let Some(ref c) = *guard && c.at.elapsed() < TTL {
+        if let Some(ref c) = *guard
+            && c.at.elapsed() < TTL
+        {
             return Json(c.data.clone());
         }
     }
@@ -434,7 +518,8 @@ pub async fn stats_daily(State(state): State<SharedState>) -> Json<Vec<DailyStat
     let height = bc.height();
     const WIB: u64 = 7 * 3600;
 
-    let today_day = bc.get_block(height)
+    let today_day = bc
+        .get_block(height)
         .map(|b| (b.timestamp + WIB) / 86400)
         .unwrap_or(0);
 
@@ -448,32 +533,50 @@ pub async fn stats_daily(State(state): State<SharedState>) -> Json<Vec<DailyStat
                 if day >= earliest && day <= today_day {
                     let e = map.entry(day).or_insert((0, 0));
                     e.0 += 1;
-                    e.1 += block.transactions.iter().filter(|t| !t.is_coinbase()).count() as u64;
+                    e.1 += block
+                        .transactions
+                        .iter()
+                        .filter(|t| !t.is_coinbase())
+                        .count() as u64;
                 }
             }
         }
     }
 
     let earliest = today_day.saturating_sub(13);
-    let mut result: Vec<DailyStat> = (0..14u64).map(|i| {
-        let day = earliest + i;
-        let (blocks, txs) = map.get(&day).copied().unwrap_or((0, 0));
-        DailyStat { date: fmt_day(day), blocks, transactions: txs }
-    }).collect();
+    let mut result: Vec<DailyStat> = (0..14u64)
+        .map(|i| {
+            let day = earliest + i;
+            let (blocks, txs) = map.get(&day).copied().unwrap_or((0, 0));
+            DailyStat {
+                date: fmt_day(day),
+                blocks,
+                transactions: txs,
+            }
+        })
+        .collect();
 
     // If chain has no blocks yet, fill with placeholder dates from system time
     if today_day == 0 {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let now_day = SystemTime::now().duration_since(UNIX_EPOCH)
-            .map(|d| (d.as_secs() + WIB) / 86400).unwrap_or(0);
-        result = (0..14u64).map(|i| DailyStat {
-            date: fmt_day(now_day.saturating_sub(13) + i),
-            blocks: 0, transactions: 0,
-        }).collect();
+        let now_day = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| (d.as_secs() + WIB) / 86400)
+            .unwrap_or(0);
+        result = (0..14u64)
+            .map(|i| DailyStat {
+                date: fmt_day(now_day.saturating_sub(13) + i),
+                blocks: 0,
+                transactions: 0,
+            })
+            .collect();
     }
 
     let mut guard = cache.lock().await;
-    *guard = Some(DailyCache { data: result.clone(), at: Instant::now() });
+    *guard = Some(DailyCache {
+        data: result.clone(),
+        at: Instant::now(),
+    });
     Json(result)
 }
 
@@ -494,16 +597,20 @@ pub async fn explorer_blocks(State(state): State<SharedState>) -> Html<String> {
                 <td>{}</td>
                 <td class="mono"><a href="/explorer/address/{}">{}</a></td>
                 </tr>"#,
-                block.index, block.index,
-                block.index, html_escape(&truncate(&block.hash, 20)),
+                block.index,
+                block.index,
+                block.index,
+                html_escape(&truncate(&block.hash, 20)),
                 html_escape(&fmt_ts(block.timestamp)),
                 block.tx_count(),
-                html_escape(&block.validator), html_escape(&truncate(&block.validator, 20)),
+                html_escape(&block.validator),
+                html_escape(&truncate(&block.validator, 20)),
             ));
         }
     }
 
-    let body = format!(r#"
+    let body = format!(
+        r#"
     {}
     <h3>Latest 50 Blocks</h3>
     <table>
@@ -548,15 +655,22 @@ pub async fn explorer_transactions(State(state): State<SharedState>) -> Html<Str
                     <td><a href="/explorer/block/{}">#{}</a></td>
                     <td>{}</td>
                     </tr>"#,
-                    html_escape(&tx.txid), html_escape(&truncate(&tx.txid, 16)),
-                    from_disp, to_disp,
-                    srx(tx.amount), tx.fee,
-                    block.index, block.index,
+                    html_escape(&tx.txid),
+                    html_escape(&truncate(&tx.txid, 16)),
+                    from_disp,
+                    to_disp,
+                    srx(tx.amount),
+                    tx.fee,
+                    block.index,
+                    block.index,
                     html_escape(&fmt_ts(block.timestamp)),
                 );
 
-                if is_cb { coinbase_rows.push_str(&row); }
-                else { regular_rows.push_str(&row); }
+                if is_cb {
+                    coinbase_rows.push_str(&row);
+                } else {
+                    regular_rows.push_str(&row);
+                }
             }
         }
     }
@@ -564,18 +678,23 @@ pub async fn explorer_transactions(State(state): State<SharedState>) -> Html<Str
     let regular_content = if regular_rows.is_empty() {
         r#"<p style="color:#6b7280;padding:24px 0;text-align:center">No regular transactions yet</p>"#.to_string()
     } else {
-        format!(r#"<table>
+        format!(
+            r#"<table>
         <tr><th>TxID</th><th>From</th><th>To</th><th>Amount</th><th>Fee</th><th>Block</th><th>Time (WIB)</th></tr>
         {regular_rows}
-        </table>"#)
+        </table>"#
+        )
     };
 
-    let coinbase_content = format!(r#"<table>
+    let coinbase_content = format!(
+        r#"<table>
     <tr><th>TxID</th><th>From</th><th>To (Validator)</th><th>Amount</th><th>Fee</th><th>Block</th><th>Time (WIB)</th></tr>
     {coinbase_rows}
-    </table>"#);
+    </table>"#
+    );
 
-    let body = format!(r#"
+    let body = format!(
+        r#"
     {nav}
     <div class="tabs" style="margin-top:0">
         <button class="tab active" onclick="showTab('regular',this)">Regular Transactions</button>
@@ -623,14 +742,17 @@ pub async fn explorer_block(
                     <td>{} sentri</td>
                     </tr>"#,
                     badge,
-                    html_escape(&tx.txid), html_escape(&truncate(&tx.txid, 16)),
+                    html_escape(&tx.txid),
+                    html_escape(&truncate(&tx.txid, 16)),
                     html_escape(&tx.from_address),
                     html_escape(&tx.to_address),
-                    srx(tx.amount), tx.fee,
+                    srx(tx.amount),
+                    tx.fee,
                 ));
             }
 
-            let body = format!(r#"
+            let body = format!(
+                r#"
             {}
             <h2>Block #{}</h2>
             <table class="detail-table">
@@ -652,7 +774,8 @@ pub async fn explorer_block(
                 html_escape(&block.previous_hash),
                 html_escape(&block.merkle_root),
                 html_escape(&fmt_ts(block.timestamp)),
-                html_escape(&block.validator), html_escape(&block.validator),
+                html_escape(&block.validator),
+                html_escape(&block.validator),
                 block.tx_count(),
                 txs_html,
             );
@@ -676,15 +799,15 @@ pub async fn explorer_address(
     for tx in history.iter().rev().take(50) {
         let dir = tx["direction"].as_str().unwrap_or("?");
         let badge = match dir {
-            "in"     => r#"<span class="badge badge-green">IN</span>"#,
-            "out"    => r#"<span class="badge badge-blue">OUT</span>"#,
+            "in" => r#"<span class="badge badge-green">IN</span>"#,
+            "out" => r#"<span class="badge badge-blue">OUT</span>"#,
             "reward" => r#"<span class="badge badge-yellow">REWARD</span>"#,
-            _        => r#"<span class="badge">?</span>"#,
+            _ => r#"<span class="badge">?</span>"#,
         };
         let txid = tx["txid"].as_str().unwrap_or("");
         let amount = tx["amount"].as_u64().unwrap_or(0);
-        let fee    = tx["fee"].as_u64().unwrap_or(0);
-        let blk    = tx["block_index"].as_u64().unwrap_or(0);
+        let fee = tx["fee"].as_u64().unwrap_or(0);
+        let blk = tx["block_index"].as_u64().unwrap_or(0);
         txs_html.push_str(&format!(
             r#"<tr>
             <td>{}</td>
@@ -694,13 +817,17 @@ pub async fn explorer_address(
             <td><a href="/explorer/block/{}">#{}</a></td>
             </tr>"#,
             badge,
-            html_escape(txid), html_escape(&truncate(txid, 16)),
-            srx(amount), fee,
-            blk, blk,
+            html_escape(txid),
+            html_escape(&truncate(txid, 16)),
+            srx(amount),
+            fee,
+            blk,
+            blk,
         ));
     }
 
-    let body = format!(r#"
+    let body = format!(
+        r#"
     {}
     <h2>Address</h2>
     <table class="detail-table">
@@ -716,13 +843,17 @@ pub async fn explorer_address(
     </table>"#,
         nav_tabs(""),
         addr_with_label(&address),
-        srx(balance), balance,
+        srx(balance),
+        balance,
         nonce,
         history.len(),
         txs_html,
     );
 
-    page(&format!("Address {}", &address[..address.len().min(10)]), &body)
+    page(
+        &format!("Address {}", &address[..address.len().min(10)]),
+        &body,
+    )
 }
 
 // ── Transaction detail ───────────────────────────────────
@@ -735,19 +866,23 @@ pub async fn explorer_tx(
         Some(tx_data) => {
             let tx = &tx_data["transaction"];
             let tx_from = tx["from_address"].as_str().unwrap_or("");
-            let tx_to   = tx["to_address"].as_str().unwrap_or("");
-            let amount  = tx["amount"].as_u64().unwrap_or(0);
-            let fee     = tx["fee"].as_u64().unwrap_or(0);
-            let blk     = tx_data["block_index"].as_u64().unwrap_or(0);
+            let tx_to = tx["to_address"].as_str().unwrap_or("");
+            let amount = tx["amount"].as_u64().unwrap_or(0);
+            let fee = tx["fee"].as_u64().unwrap_or(0);
+            let blk = tx_data["block_index"].as_u64().unwrap_or(0);
 
             let from_link = if tx_from == "COINBASE" {
                 "COINBASE".to_string()
             } else {
-                format!(r#"<a href="/explorer/address/{}">{}</a>"#,
-                    html_escape(tx_from), html_escape(tx_from))
+                format!(
+                    r#"<a href="/explorer/address/{}">{}</a>"#,
+                    html_escape(tx_from),
+                    html_escape(tx_from)
+                )
             };
 
-            let body = format!(r#"
+            let body = format!(
+                r#"
             {}
             <h2>Transaction</h2>
             <table class="detail-table">
@@ -764,11 +899,14 @@ pub async fn explorer_tx(
                 nav_tabs("transactions"),
                 html_escape(tx["txid"].as_str().unwrap_or("")),
                 from_link,
-                html_escape(tx_to), html_escape(tx_to),
-                srx(amount), amount,
+                html_escape(tx_to),
+                html_escape(tx_to),
+                srx(amount),
+                amount,
                 fee,
                 tx["nonce"],
-                blk, blk,
+                blk,
+                blk,
                 html_escape(&fmt_ts(tx["timestamp"].as_u64().unwrap_or(0))),
             );
             page("Transaction", &body)
@@ -795,14 +933,17 @@ pub async fn explorer_validators(State(state): State<SharedState>) -> Html<Strin
             <td>{}</td>
             <td>{}</td>
             </tr>"#,
-            html_escape(&v.address), html_escape(&v.name),
-            html_escape(&v.address), html_escape(&v.address),
+            html_escape(&v.address),
+            html_escape(&v.name),
+            html_escape(&v.address),
+            html_escape(&v.address),
             status,
             v.blocks_produced,
         ));
     }
 
-    let body = format!(r#"
+    let body = format!(
+        r#"
     {}
     <table>
     <tr><th>Name</th><th>Address</th><th>Status</th><th>Blocks Produced</th></tr>
@@ -832,9 +973,11 @@ pub async fn explorer_tokens(State(state): State<SharedState>) -> Html<String> {
             <td>{}</td>
             <td class="mono"><a href="/explorer/address/{}">{}</a></td>
             </tr>"#,
-            html_escape(contract), html_escape(t["symbol"].as_str().unwrap_or("")),
+            html_escape(contract),
+            html_escape(t["symbol"].as_str().unwrap_or("")),
             html_escape(t["name"].as_str().unwrap_or("")),
-            html_escape(contract), html_escape(&truncate(contract, 24)),
+            html_escape(contract),
+            html_escape(&truncate(contract, 24)),
             t["total_supply"],
             t["holders"],
             html_escape(t["owner"].as_str().unwrap_or("")),
@@ -842,7 +985,8 @@ pub async fn explorer_tokens(State(state): State<SharedState>) -> Html<String> {
         ));
     }
 
-    let body = format!(r#"
+    let body = format!(
+        r#"
     {}
     <table>
     <tr><th>Symbol</th><th>Name</th><th>Contract</th><th>Supply</th><th>Holders</th><th>Owner</th></tr>
@@ -862,14 +1006,18 @@ pub async fn explorer_richlist(State(state): State<SharedState>) -> Html<String>
     let cache = RICHLIST_CACHE.get_or_init(|| TokioMutex::new(None));
     {
         let guard = cache.lock().await;
-        if let Some(ref c) = *guard && c.at.elapsed() < RICHLIST_TTL {
+        if let Some(ref c) = *guard
+            && c.at.elapsed() < RICHLIST_TTL
+        {
             return Html(c.html.clone());
         }
     }
     let bc = state.read().await;
 
     // Collect all non-zero balances, sort descending
-    let mut holders: Vec<(&String, u64)> = bc.accounts.accounts
+    let mut holders: Vec<(&String, u64)> = bc
+        .accounts
+        .accounts
         .iter()
         .filter(|(_, a)| a.balance > 0)
         .map(|(addr, a)| (addr, a.balance))
@@ -889,7 +1037,8 @@ pub async fn explorer_richlist(State(state): State<SharedState>) -> Html<String>
             <td style="color:#9ca3af">{:.6}%</td>
             </tr>"#,
             rank + 1,
-            html_escape(address), addr_with_label(address),
+            html_escape(address),
+            addr_with_label(address),
             balance_srx,
             pct,
         ));
@@ -897,9 +1046,12 @@ pub async fn explorer_richlist(State(state): State<SharedState>) -> Html<String>
 
     let empty = if rows.is_empty() {
         r#"<p style="color:#6b7280;padding:24px 0;text-align:center">No accounts found</p>"#
-    } else { "" };
+    } else {
+        ""
+    };
 
-    let body = format!(r#"
+    let body = format!(
+        r#"
     {}
     <h2>Rich List — Top SRX Holders</h2>
     <p style="color:#6b7280;font-size:13px;margin-bottom:16px">Top 50 addresses by SRX balance &nbsp;|&nbsp; Total supply: 210,000,000 SRX</p>
@@ -915,8 +1067,14 @@ pub async fn explorer_richlist(State(state): State<SharedState>) -> Html<String>
 
     let result = page("Rich List", &body);
     {
-        let mut guard = RICHLIST_CACHE.get_or_init(|| TokioMutex::new(None)).lock().await;
-        *guard = Some(CachedPage { html: result.0.clone(), at: Instant::now() });
+        let mut guard = RICHLIST_CACHE
+            .get_or_init(|| TokioMutex::new(None))
+            .lock()
+            .await;
+        *guard = Some(CachedPage {
+            html: result.0.clone(),
+            at: Instant::now(),
+        });
     }
     result
 }
@@ -940,7 +1098,9 @@ pub async fn explorer_validator(
 
     // Slot in round-robin (position among active validators sorted by address)
     let active_validators = bc.authority.active_validators();
-    let slot = active_validators.iter().position(|av| av.address == v.address)
+    let slot = active_validators
+        .iter()
+        .position(|av| av.address == v.address)
         .map(|i| format!("#{}", i + 1))
         .unwrap_or_else(|| "—".to_string());
 
@@ -958,17 +1118,22 @@ pub async fn explorer_validator(
                 <td>{}</td>
                 <td>{}</td>
                 </tr>"#,
-                block.index, block.index,
-                block.index, html_escape(&truncate(&block.hash, 20)),
+                block.index,
+                block.index,
+                block.index,
+                html_escape(&truncate(&block.hash, 20)),
                 html_escape(&fmt_ts(block.timestamp)),
                 block.tx_count(),
             ));
             found += 1;
-            if found >= 20 { break; }
+            if found >= 20 {
+                break;
+            }
         }
     }
 
-    let body = format!(r#"
+    let body = format!(
+        r#"
     {}
     <h2>Validator: {}</h2>
     <table class="detail-table">
@@ -989,13 +1154,18 @@ pub async fn explorer_validator(
         nav_tabs("validators"),
         html_escape(&v.name),
         html_escape(&v.name),
-        html_escape(&v.address), html_escape(&v.address),
+        html_escape(&v.address),
+        html_escape(&v.address),
         status,
         v.blocks_produced,
         earned_srx,
         slot,
         html_escape(&fmt_ts(v.registered_at)),
-        if v.last_block_time > 0 { html_escape(&fmt_ts(v.last_block_time)) } else { "—".to_string() },
+        if v.last_block_time > 0 {
+            html_escape(&fmt_ts(v.last_block_time))
+        } else {
+            "—".to_string()
+        },
         block_rows,
     );
 
@@ -1020,7 +1190,7 @@ pub async fn explorer_token(
     let mut holder_rows = String::new();
     for (i, h) in holders_list.iter().take(20).enumerate() {
         let addr = h["address"].as_str().unwrap_or("");
-        let bal  = h["balance"].as_u64().unwrap_or(0);
+        let bal = h["balance"].as_u64().unwrap_or(0);
         holder_rows.push_str(&format!(
             r#"<tr>
             <td style="color:#6b7280">#{}</td>
@@ -1028,7 +1198,8 @@ pub async fn explorer_token(
             <td>{}</td>
             </tr>"#,
             i + 1,
-            html_escape(addr), html_escape(addr),
+            html_escape(addr),
+            html_escape(addr),
             bal,
         ));
     }
@@ -1038,9 +1209,9 @@ pub async fn explorer_token(
     for t in &trades {
         let txid = t["txid"].as_str().unwrap_or("");
         let from = t["from"].as_str().unwrap_or("");
-        let to   = t["to"].as_str().unwrap_or("");
-        let amt  = t["amount"].as_u64().unwrap_or(0);
-        let blk  = t["block_index"].as_u64().unwrap_or(0);
+        let to = t["to"].as_str().unwrap_or("");
+        let amt = t["amount"].as_u64().unwrap_or(0);
+        let blk = t["block_index"].as_u64().unwrap_or(0);
         trade_rows.push_str(&format!(
             r#"<tr>
             <td class="hash"><a href="/explorer/tx/{}">{}</a></td>
@@ -1049,16 +1220,21 @@ pub async fn explorer_token(
             <td>{}</td>
             <td><a href="/explorer/block/{}">#{}</a></td>
             </tr>"#,
-            html_escape(txid), html_escape(&truncate(txid, 16)),
-            html_escape(from), html_escape(&truncate(from, 14)),
-            html_escape(to),   html_escape(&truncate(to,   14)),
+            html_escape(txid),
+            html_escape(&truncate(txid, 16)),
+            html_escape(from),
+            html_escape(&truncate(from, 14)),
+            html_escape(to),
+            html_escape(&truncate(to, 14)),
             amt,
-            blk, blk,
+            blk,
+            blk,
         ));
     }
 
     let owner = info["owner"].as_str().unwrap_or("");
-    let body = format!(r#"
+    let body = format!(
+        r#"
     {}
     <h2>Token: {} ({})</h2>
     <table class="detail-table">
@@ -1091,14 +1267,26 @@ pub async fn explorer_token(
         info["total_supply"],
         info["decimals"],
         info["holders"],
-        html_escape(owner), html_escape(owner),
-        if holder_rows.is_empty() { r#"<p style="color:#6b7280;padding:12px 0">No holders yet</p>"# } else { "" },
+        html_escape(owner),
+        html_escape(owner),
+        if holder_rows.is_empty() {
+            r#"<p style="color:#6b7280;padding:12px 0">No holders yet</p>"#
+        } else {
+            ""
+        },
         holder_rows,
-        if trade_rows.is_empty() { r#"<p style="color:#6b7280;padding:12px 0">No transfers yet</p>"# } else { "" },
+        if trade_rows.is_empty() {
+            r#"<p style="color:#6b7280;padding:12px 0">No transfers yet</p>"#
+        } else {
+            ""
+        },
         trade_rows,
     );
 
-    page(&format!("Token {}", info["symbol"].as_str().unwrap_or("")), &body)
+    page(
+        &format!("Token {}", info["symbol"].as_str().unwrap_or("")),
+        &body,
+    )
 }
 
 // ── Mempool page ──────────────────────────────────────────
@@ -1119,19 +1307,24 @@ pub async fn explorer_mempool(State(state): State<SharedState>) -> Html<String> 
                 <td>{:.8} SRX</td>
                 <td>{} sentri</td>
                 </tr>"#,
-                html_escape(&tx.txid), html_escape(&truncate(&tx.txid, 16)),
+                html_escape(&tx.txid),
+                html_escape(&truncate(&tx.txid, 16)),
                 html_escape(&truncate(&tx.from_address, 16)),
-                html_escape(&truncate(&tx.to_address,   16)),
-                srx(tx.amount), tx.fee,
+                html_escape(&truncate(&tx.to_address, 16)),
+                srx(tx.amount),
+                tx.fee,
             ));
         }
-        format!(r#"<table>
+        format!(
+            r#"<table>
         <tr><th>TxID</th><th>From</th><th>To</th><th>Amount</th><th>Fee</th></tr>
         {rows}
-        </table>"#)
+        </table>"#
+        )
     };
 
-    let body = format!(r#"
+    let body = format!(
+        r#"
     {}
     <h2>Mempool <span style="color:#6b7280;font-size:14px;font-weight:400">({} pending)</span></h2>
     {}
@@ -1154,10 +1347,7 @@ mod tests {
             html_escape("<script>alert('xss')</script>"),
             "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"
         );
-        assert_eq!(
-            html_escape("normal text"),
-            "normal text"
-        );
+        assert_eq!(html_escape("normal text"), "normal text");
         assert_eq!(
             html_escape(r#"<img src=x onerror="alert(1)">"#),
             "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;"

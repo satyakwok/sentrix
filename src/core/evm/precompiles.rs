@@ -40,8 +40,14 @@ mod tests {
 
     #[test]
     fn test_precompile_addresses() {
-        assert_eq!(STAKING_PRECOMPILE, Address::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]));
-        assert_eq!(SLASHING_PRECOMPILE, Address::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]));
+        assert_eq!(
+            STAKING_PRECOMPILE,
+            Address::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0])
+        );
+        assert_eq!(
+            SLASHING_PRECOMPILE,
+            Address::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1])
+        );
     }
 
     #[test]

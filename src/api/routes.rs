@@ -1,30 +1,29 @@
 // routes.rs - Sentrix
 
 use axum::{
-    Router,
-    routing::{get, post},
-    extract::{State, Path, FromRequestParts, DefaultBodyLimit},
-    Json,
+    Json, Router,
+    extract::{DefaultBodyLimit, FromRequestParts, Path, State},
     http::{StatusCode, request::Parts},
     response::IntoResponse,
+    routing::{get, post},
 };
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 // tokio::sync::Mutex is async-safe — does not block Tokio worker threads.
 // std::sync::Mutex::lock() is a blocking syscall; holding it in async context
 // starves other tasks on the same thread under high load.
-use tokio::sync::Mutex;
-use std::time::Instant;
+use crate::api::explorer;
+use crate::api::jsonrpc::rpc_dispatcher;
+use crate::core::blockchain::Blockchain;
+use crate::core::transaction::{TokenOp, Transaction};
+use crate::core::trie::address::{account_value_decode, address_to_key};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Instant;
+use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tower::limit::ConcurrencyLimitLayer;
-use tower_http::cors::{CorsLayer, Any};
-use crate::core::blockchain::Blockchain;
-use crate::core::transaction::{Transaction, TokenOp};
-use crate::core::trie::address::{address_to_key, account_value_decode};
-use crate::api::jsonrpc::rpc_dispatcher;
-use crate::api::explorer;
+use tower_http::cors::{Any, CorsLayer};
 
 // ── API key extractor ─────────────────────────────────────
 // Add `_auth: ApiKey` as the first parameter of any handler that needs auth.
@@ -39,7 +38,8 @@ impl<S: Send + Sync> FromRequestParts<S> for ApiKey {
             Ok(k) if !k.is_empty() => k,
             _ => return Ok(ApiKey), // no key set → always allow
         };
-        let provided = parts.headers
+        let provided = parts
+            .headers
             .get("X-API-Key")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
@@ -63,10 +63,18 @@ pub struct ApiResponse<T: Serialize> {
 
 impl<T: Serialize> ApiResponse<T> {
     pub fn ok(data: T) -> Json<Self> {
-        Json(Self { success: true, data: Some(data), error: None })
+        Json(Self {
+            success: true,
+            data: Some(data),
+            error: None,
+        })
     }
     pub fn err(msg: String) -> Json<ApiResponse<()>> {
-        Json(ApiResponse { success: false, data: None, error: Some(msg) })
+        Json(ApiResponse {
+            success: false,
+            data: None,
+            error: Some(msg),
+        })
     }
 }
 
@@ -100,7 +108,6 @@ pub fn constant_time_eq(a: &str, b: &str) -> bool {
     (len_eq & content_eq).into()
 }
 
-
 // ── Per-IP Rate Limiter (V5-06) ──────────────────────────
 pub type IpRateLimiter = Arc<Mutex<HashMap<String, (u32, Instant)>>>;
 const RATE_LIMIT_WINDOW_SECS: u64 = 60;
@@ -111,7 +118,8 @@ async fn ip_rate_limit_middleware(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     // Extract client IP from proxy headers (set by nginx) or fall back to "unknown"
-    let ip = request.headers()
+    let ip = request
+        .headers()
         .get("x-forwarded-for")
         .or_else(|| request.headers().get("x-real-ip"))
         .and_then(|v| v.to_str().ok())
@@ -120,7 +128,7 @@ async fn ip_rate_limit_middleware(
         .unwrap_or_else(|| "unknown".to_string());
 
     let allowed = if let Some(limiter) = request.extensions().get::<IpRateLimiter>().cloned() {
-        let mut map = limiter.lock().await;  // async lock — yields to executor instead of blocking the thread
+        let mut map = limiter.lock().await; // async lock — yields to executor instead of blocking the thread
 
         // Evict stale entries to keep the rate-limiter map from growing without bound
         if map.len() > 10_000 {
@@ -149,8 +157,9 @@ async fn ip_rate_limit_middleware(
                 "error": "rate limit exceeded",
                 "limit": RATE_LIMIT_MAX_REQUESTS,
                 "window_secs": RATE_LIMIT_WINDOW_SECS,
-            }))
-        ).into_response()
+            })),
+        )
+            .into_response()
     }
 }
 
@@ -177,8 +186,9 @@ pub fn create_router(state: SharedState) -> Router {
             // Specific origin (production)
             CorsLayer::new()
                 .allow_origin(
-                    origin.parse::<axum::http::HeaderValue>()
-                        .unwrap_or(axum::http::HeaderValue::from_static("null"))
+                    origin
+                        .parse::<axum::http::HeaderValue>()
+                        .unwrap_or(axum::http::HeaderValue::from_static("null")),
                 )
                 .allow_methods([
                     axum::http::Method::GET,
@@ -213,51 +223,54 @@ pub fn create_router(state: SharedState) -> Router {
     // in each protected handler's parameter list, not via route layers.
     Router::new()
         // ── Public GET routes ────────────────────────────────────
-        .route("/",                               get(root))
-        .route("/health",                         get(health))
-        .route("/chain/info",                     get(chain_info))
-        .route("/chain/blocks",                   get(get_blocks))
-        .route("/chain/blocks/{index}",           get(get_block))
-        .route("/chain/validate",                 get(validate_chain))
-        .route("/accounts/{address}/balance",     get(get_balance))
-        .route("/accounts/{address}/nonce",       get(get_nonce))
-        .route("/mempool",                        get(get_mempool))
-        .route("/validators",                     get(get_validators))
+        .route("/", get(root))
+        .route("/health", get(health))
+        .route("/chain/info", get(chain_info))
+        .route("/chain/blocks", get(get_blocks))
+        .route("/chain/blocks/{index}", get(get_block))
+        .route("/chain/validate", get(validate_chain))
+        .route("/accounts/{address}/balance", get(get_balance))
+        .route("/accounts/{address}/nonce", get(get_nonce))
+        .route("/mempool", get(get_mempool))
+        .route("/validators", get(get_validators))
         // ── Short-form aliases (CoinBlast / Faucet) ──────────────
-        .route("/blocks",                         get(get_blocks))
-        .route("/blocks/{height}",                get(get_block))
-        .route("/wallets/{address}",              get(get_wallet_info))
-        .route("/transactions",                   get(list_transactions).post(send_transaction))
-        .route("/transactions/{txid}",            get(get_transaction))
+        .route("/blocks", get(get_blocks))
+        .route("/blocks/{height}", get(get_block))
+        .route("/wallets/{address}", get(get_wallet_info))
+        .route(
+            "/transactions",
+            get(list_transactions).post(send_transaction),
+        )
+        .route("/transactions/{txid}", get(get_transaction))
         // ── Token endpoints ──────────────────────────────────────
-        .route("/tokens",                         get(list_tokens))
-        .route("/tokens/{contract}",              get(get_token_info))
+        .route("/tokens", get(list_tokens))
+        .route("/tokens/{contract}", get(get_token_info))
         .route("/tokens/{contract}/balance/{addr}", get(get_token_balance))
-        .route("/tokens/{contract}/holders",      get(get_token_holders_list))
-        .route("/tokens/{contract}/trades",       get(get_token_trades_list))
-        .route("/tokens/deploy",                  post(deploy_token))
-        .route("/tokens/{contract}/transfer",     post(token_transfer))
-        .route("/tokens/{contract}/burn",         post(token_burn))
+        .route("/tokens/{contract}/holders", get(get_token_holders_list))
+        .route("/tokens/{contract}/trades", get(get_token_trades_list))
+        .route("/tokens/deploy", post(deploy_token))
+        .route("/tokens/{contract}/transfer", post(token_transfer))
+        .route("/tokens/{contract}/burn", post(token_burn))
         // ── Rich list ────────────────────────────────────────────
-        .route("/richlist",                       get(get_richlist))
+        .route("/richlist", get(get_richlist))
         // ── Address history ──────────────────────────────────────
-        .route("/address/{address}/history",      get(get_address_history))
-        .route("/address/{address}/info",         get(get_address_info))
+        .route("/address/{address}/history", get(get_address_history))
+        .route("/address/{address}/info", get(get_address_info))
         // ── State trie ───────────────────────────────────────────
-        .route("/address/{address}/proof",        get(get_address_proof))
-        .route("/chain/state-root/{height}",      get(get_state_root))
+        .route("/address/{address}/proof", get(get_address_proof))
+        .route("/chain/state-root/{height}", get(get_state_root))
         // ── Staking (Voyager DPoS) ───────────────────────────────
-        .route("/staking/validators",             get(staking_validators))
-        .route("/staking/delegations/{address}",  get(staking_delegations))
-        .route("/staking/unbonding/{address}",    get(staking_unbonding))
-        .route("/epoch/current",                   get(epoch_current))
-        .route("/epoch/history",                   get(epoch_history))
+        .route("/staking/validators", get(staking_validators))
+        .route("/staking/delegations/{address}", get(staking_delegations))
+        .route("/staking/unbonding/{address}", get(staking_unbonding))
+        .route("/epoch/current", get(epoch_current))
+        .route("/epoch/history", get(epoch_history))
         // ── RPC ──────────────────────────────────────────────────
-        .route("/rpc",                            post(rpc_dispatcher))
+        .route("/rpc", post(rpc_dispatcher))
         // ── Admin ────────────────────────────────────────────────
-        .route("/admin/log",                      get(get_admin_log))
+        .route("/admin/log", get(get_admin_log))
         // ── Stats ────────────────────────────────────────────────
-        .route("/stats/daily",                    get(explorer::stats_daily))
+        .route("/stats/daily", get(explorer::stats_daily))
         // ── Explorer ─────────────────────────────────────────────
         .nest("/explorer", explorer_router(state.clone()))
         .layer(cors)
@@ -276,18 +289,18 @@ pub fn create_router(state: SharedState) -> Router {
 
 fn explorer_router(_state: SharedState) -> Router<SharedState> {
     Router::new()
-        .route("/",                 get(explorer::explorer_home))
-        .route("/blocks",           get(explorer::explorer_blocks))
-        .route("/transactions",     get(explorer::explorer_transactions))
-        .route("/validators",       get(explorer::explorer_validators))
-        .route("/tokens",           get(explorer::explorer_tokens))
-        .route("/richlist",           get(explorer::explorer_richlist))
-        .route("/mempool",            get(explorer::explorer_mempool))
+        .route("/", get(explorer::explorer_home))
+        .route("/blocks", get(explorer::explorer_blocks))
+        .route("/transactions", get(explorer::explorer_transactions))
+        .route("/validators", get(explorer::explorer_validators))
+        .route("/tokens", get(explorer::explorer_tokens))
+        .route("/richlist", get(explorer::explorer_richlist))
+        .route("/mempool", get(explorer::explorer_mempool))
         .route("/validator/{address}", get(explorer::explorer_validator))
-        .route("/token/{contract}",    get(explorer::explorer_token))
-        .route("/block/{index}",       get(explorer::explorer_block))
-        .route("/address/{address}",   get(explorer::explorer_address))
-        .route("/tx/{txid}",           get(explorer::explorer_tx))
+        .route("/token/{contract}", get(explorer::explorer_token))
+        .route("/block/{index}", get(explorer::explorer_block))
+        .route("/address/{address}", get(explorer::explorer_address))
+        .route("/tx/{txid}", get(explorer::explorer_tx))
 }
 
 // ── Handlers ─────────────────────────────────────────────
@@ -324,7 +337,8 @@ async fn get_blocks(
 ) -> Json<serde_json::Value> {
     let bc = state.read().await;
     let page: u64 = params.get("page").and_then(|p| p.parse().ok()).unwrap_or(0);
-    let limit: u64 = params.get("limit")
+    let limit: u64 = params
+        .get("limit")
         .and_then(|l| l.parse().ok())
         .unwrap_or(20)
         .min(100); // hard cap at 100
@@ -332,21 +346,25 @@ async fn get_blocks(
     let total = bc.height() + 1; // true height from last block's index, not window size
     let start_skip = (page * limit) as usize;
 
-    let blocks: Vec<serde_json::Value> = bc.chain.iter()
+    let blocks: Vec<serde_json::Value> = bc
+        .chain
+        .iter()
         .rev() // newest first (window only — last CHAIN_WINDOW_SIZE blocks)
         .skip(start_skip)
         .take(limit as usize)
-        .map(|b| serde_json::json!({
-            "index": b.index,
-            "hash": b.hash,
-            "previous_hash": b.previous_hash,
-            "timestamp": b.timestamp,
-            "tx_count": b.tx_count(),
-            "validator": b.validator,
-            "merkle_root": b.merkle_root,
-            "round": b.round,
-            "has_justification": b.justification.is_some(),
-        }))
+        .map(|b| {
+            serde_json::json!({
+                "index": b.index,
+                "hash": b.hash,
+                "previous_hash": b.previous_hash,
+                "timestamp": b.timestamp,
+                "tx_count": b.tx_count(),
+                "validator": b.validator,
+                "merkle_root": b.merkle_root,
+                "round": b.round,
+                "has_justification": b.justification.is_some(),
+            })
+        })
         .collect();
 
     let has_more = (start_skip + blocks.len()) < total as usize;
@@ -450,10 +468,13 @@ async fn send_transaction(
             "txid": req.transaction.txid,
             "message": "transaction added to mempool",
         }))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "success": false,
-            "error": e.to_string(),
-        })))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": e.to_string(),
+            })),
+        )),
     }
 }
 
@@ -487,13 +508,20 @@ async fn get_mempool(State(state): State<SharedState>) -> Json<serde_json::Value
 
 async fn get_validators(State(state): State<SharedState>) -> Json<serde_json::Value> {
     let bc = state.read().await;
-    let validators: Vec<serde_json::Value> = bc.authority.validators.values().map(|v| serde_json::json!({
-        "address": v.address,
-        "name": v.name,
-        "is_active": v.is_active,
-        "blocks_produced": v.blocks_produced,
-        "registered_at": v.registered_at,
-    })).collect();
+    let validators: Vec<serde_json::Value> = bc
+        .authority
+        .validators
+        .values()
+        .map(|v| {
+            serde_json::json!({
+                "address": v.address,
+                "name": v.name,
+                "is_active": v.is_active,
+                "blocks_produced": v.blocks_produced,
+                "registered_at": v.registered_at,
+            })
+        })
+        .collect();
     Json(serde_json::json!({
         "validators": validators,
         "active": bc.authority.active_count(),
@@ -553,9 +581,13 @@ async fn deploy_token(
     let op = TokenOp::decode(&tx.data)
         .ok_or_else(|| api_err("data must contain a valid TokenOp JSON"))?;
     let (name, symbol, total_supply, max_supply) = match &op {
-        TokenOp::Deploy { name, symbol, supply, max_supply, .. } => {
-            (name.clone(), symbol.clone(), *supply, *max_supply)
-        }
+        TokenOp::Deploy {
+            name,
+            symbol,
+            supply,
+            max_supply,
+            ..
+        } => (name.clone(), symbol.clone(), *supply, *max_supply),
         _ => return Err(api_err("expected Deploy operation in tx.data")),
     };
     let deployer = tx.from_address.clone();
@@ -584,7 +616,11 @@ async fn token_transfer(
     let op = TokenOp::decode(&tx.data)
         .ok_or_else(|| api_err("data must contain a valid TokenOp JSON"))?;
     let (to_addr, amount) = match &op {
-        TokenOp::Transfer { contract: c, to, amount } => {
+        TokenOp::Transfer {
+            contract: c,
+            to,
+            amount,
+        } => {
             if *c != contract {
                 return Err(api_err("contract in data does not match URL"));
             }
@@ -617,7 +653,10 @@ async fn token_burn(
     let op = TokenOp::decode(&tx.data)
         .ok_or_else(|| api_err("data must contain a valid TokenOp JSON"))?;
     let amount = match &op {
-        TokenOp::Burn { contract: c, amount } => {
+        TokenOp::Burn {
+            contract: c,
+            amount,
+        } => {
             if *c != contract {
                 return Err(api_err("contract in data does not match URL"));
             }
@@ -666,8 +705,15 @@ async fn list_transactions(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Json<serde_json::Value> {
     let bc = state.read().await;
-    let limit: usize = params.get("limit").and_then(|l| l.parse().ok()).unwrap_or(20).min(100);
-    let offset: usize = params.get("offset").and_then(|o| o.parse().ok()).unwrap_or(0);
+    let limit: usize = params
+        .get("limit")
+        .and_then(|l| l.parse().ok())
+        .unwrap_or(20)
+        .min(100);
+    let offset: usize = params
+        .get("offset")
+        .and_then(|o| o.parse().ok())
+        .unwrap_or(0);
     let txs = bc.get_latest_transactions(limit, offset);
     let count = txs.len();
     Json(serde_json::json!({
@@ -701,8 +747,15 @@ async fn get_token_trades_list(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Json<serde_json::Value> {
     let bc = state.read().await;
-    let limit: usize = params.get("limit").and_then(|l| l.parse().ok()).unwrap_or(20).min(100);
-    let offset: usize = params.get("offset").and_then(|o| o.parse().ok()).unwrap_or(0);
+    let limit: usize = params
+        .get("limit")
+        .and_then(|l| l.parse().ok())
+        .unwrap_or(20)
+        .min(100);
+    let offset: usize = params
+        .get("offset")
+        .and_then(|o| o.parse().ok())
+        .unwrap_or(0);
     let trades = bc.get_token_trades(&contract, limit, offset);
     let count = trades.len();
     Json(serde_json::json!({
@@ -716,7 +769,9 @@ async fn get_token_trades_list(
 async fn get_richlist(State(state): State<SharedState>) -> Json<serde_json::Value> {
     const TOTAL_SUPPLY_SENTRI: u64 = 210_000_000 * 100_000_000;
     let bc = state.read().await;
-    let mut holders: Vec<serde_json::Value> = bc.accounts.accounts
+    let mut holders: Vec<serde_json::Value> = bc
+        .accounts
+        .accounts
         .iter()
         .filter(|(_, a)| a.balance > 0)
         .map(|(addr, a)| {
@@ -740,10 +795,7 @@ async fn get_richlist(State(state): State<SharedState>) -> Json<serde_json::Valu
 }
 
 // Admin audit log — requires X-API-Key authentication
-async fn get_admin_log(
-    _auth: ApiKey,
-    State(state): State<SharedState>,
-) -> Json<serde_json::Value> {
+async fn get_admin_log(_auth: ApiKey, State(state): State<SharedState>) -> Json<serde_json::Value> {
     let bc = state.read().await;
     Json(serde_json::json!({
         "log": bc.authority.admin_log,
@@ -753,24 +805,27 @@ async fn get_admin_log(
 
 // ── Staking + Epoch handlers (Voyager Phase 2a) ─────────
 
-async fn staking_validators(
-    State(state): State<SharedState>,
-) -> Json<serde_json::Value> {
+async fn staking_validators(State(state): State<SharedState>) -> Json<serde_json::Value> {
     let bc = state.read().await;
-    let validators: Vec<serde_json::Value> = bc.stake_registry.validators.values()
-        .map(|v| serde_json::json!({
-            "address": v.address,
-            "self_stake": v.self_stake,
-            "total_delegated": v.total_delegated,
-            "total_stake": v.total_stake(),
-            "commission_rate": v.commission_rate,
-            "is_jailed": v.is_jailed,
-            "is_tombstoned": v.is_tombstoned,
-            "is_active": bc.stake_registry.is_active(&v.address),
-            "blocks_signed": v.blocks_signed,
-            "blocks_missed": v.blocks_missed,
-            "pending_rewards": v.pending_rewards,
-        }))
+    let validators: Vec<serde_json::Value> = bc
+        .stake_registry
+        .validators
+        .values()
+        .map(|v| {
+            serde_json::json!({
+                "address": v.address,
+                "self_stake": v.self_stake,
+                "total_delegated": v.total_delegated,
+                "total_stake": v.total_stake(),
+                "commission_rate": v.commission_rate,
+                "is_jailed": v.is_jailed,
+                "is_tombstoned": v.is_tombstoned,
+                "is_active": bc.stake_registry.is_active(&v.address),
+                "blocks_signed": v.blocks_signed,
+                "blocks_missed": v.blocks_missed,
+                "pending_rewards": v.pending_rewards,
+            })
+        })
         .collect();
     Json(serde_json::json!({
         "validators": validators,
@@ -785,13 +840,17 @@ async fn staking_delegations(
 ) -> Json<serde_json::Value> {
     let bc = state.read().await;
     let addr = address.to_lowercase();
-    let delegations: Vec<serde_json::Value> = bc.stake_registry.get_delegations(&addr)
+    let delegations: Vec<serde_json::Value> = bc
+        .stake_registry
+        .get_delegations(&addr)
         .iter()
-        .map(|d| serde_json::json!({
-            "validator": d.validator,
-            "amount": d.amount,
-            "height": d.height,
-        }))
+        .map(|d| {
+            serde_json::json!({
+                "validator": d.validator,
+                "amount": d.amount,
+                "height": d.height,
+            })
+        })
         .collect();
     Json(serde_json::json!({
         "delegator": addr,
@@ -806,13 +865,17 @@ async fn staking_unbonding(
 ) -> Json<serde_json::Value> {
     let bc = state.read().await;
     let addr = address.to_lowercase();
-    let entries: Vec<serde_json::Value> = bc.stake_registry.get_pending_unbonding(&addr)
+    let entries: Vec<serde_json::Value> = bc
+        .stake_registry
+        .get_pending_unbonding(&addr)
         .iter()
-        .map(|u| serde_json::json!({
-            "validator": u.validator,
-            "amount": u.amount,
-            "completion_height": u.completion_height,
-        }))
+        .map(|u| {
+            serde_json::json!({
+                "validator": u.validator,
+                "amount": u.amount,
+                "completion_height": u.completion_height,
+            })
+        })
         .collect();
     Json(serde_json::json!({
         "delegator": addr,
@@ -821,9 +884,7 @@ async fn staking_unbonding(
     }))
 }
 
-async fn epoch_current(
-    State(state): State<SharedState>,
-) -> Json<serde_json::Value> {
+async fn epoch_current(State(state): State<SharedState>) -> Json<serde_json::Value> {
     let bc = state.read().await;
     let epoch = &bc.epoch_manager.current_epoch;
     Json(serde_json::json!({
@@ -842,21 +903,26 @@ async fn epoch_history(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Json<serde_json::Value> {
     let bc = state.read().await;
-    let count: usize = params.get("count")
+    let count: usize = params
+        .get("count")
         .and_then(|c| c.parse().ok())
         .unwrap_or(10)
         .min(100);
-    let epochs: Vec<serde_json::Value> = bc.epoch_manager.recent_epochs(count)
+    let epochs: Vec<serde_json::Value> = bc
+        .epoch_manager
+        .recent_epochs(count)
         .iter()
-        .map(|e| serde_json::json!({
-            "epoch_number": e.epoch_number,
-            "start_height": e.start_height,
-            "end_height": e.end_height,
-            "validator_count": e.validator_set.len(),
-            "total_staked": e.total_staked,
-            "total_rewards": e.total_rewards,
-            "total_blocks_produced": e.total_blocks_produced,
-        }))
+        .map(|e| {
+            serde_json::json!({
+                "epoch_number": e.epoch_number,
+                "start_height": e.start_height,
+                "end_height": e.end_height,
+                "validator_count": e.validator_set.len(),
+                "total_staked": e.total_staked,
+                "total_rewards": e.total_rewards,
+                "total_blocks_produced": e.total_blocks_produced,
+            })
+        })
         .collect();
     Json(serde_json::json!({
         "epochs": epochs,
@@ -866,7 +932,10 @@ async fn epoch_history(
 
 // Helper for API error responses
 fn api_err(msg: &str) -> (StatusCode, Json<serde_json::Value>) {
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({"success": false, "error": msg})))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"success": false, "error": msg})),
+    )
 }
 
 // ── Address history handlers ─────────────────────────────
@@ -880,8 +949,15 @@ async fn get_address_history(
     // Normalize address to lowercase — consistent with get_balance, get_nonce, get_address_info
     let address = address.to_lowercase();
     let bc = state.read().await;
-    let limit: usize = params.get("limit").and_then(|l| l.parse().ok()).unwrap_or(20).min(100);
-    let offset: usize = params.get("offset").and_then(|o| o.parse().ok()).unwrap_or(0);
+    let limit: usize = params
+        .get("limit")
+        .and_then(|l| l.parse().ok())
+        .unwrap_or(20)
+        .min(100);
+    let offset: usize = params
+        .get("offset")
+        .and_then(|o| o.parse().ok())
+        .unwrap_or(0);
     let history = bc.get_address_history(&address, limit, offset);
     let count = history.len();
     Json(serde_json::json!({
@@ -1022,7 +1098,10 @@ mod tests {
         // Equal strings
         assert!(constant_time_eq("abc123", "abc123"));
         assert!(constant_time_eq("", ""));
-        assert!(constant_time_eq("sentrix-api-key-xyz", "sentrix-api-key-xyz"));
+        assert!(constant_time_eq(
+            "sentrix-api-key-xyz",
+            "sentrix-api-key-xyz"
+        ));
 
         // Unequal strings (same length)
         assert!(!constant_time_eq("abc123", "abc124"));
@@ -1042,7 +1121,10 @@ mod tests {
         // We verify correctness: different lengths always return false regardless of content.
         assert!(!constant_time_eq("a", "aa"));
         assert!(!constant_time_eq("aa", "a"));
-        assert!(!constant_time_eq("key_32_chars_long_abcdefghijklmn", "key_32_chars_long_abcdefghijklm"));
+        assert!(!constant_time_eq(
+            "key_32_chars_long_abcdefghijklmn",
+            "key_32_chars_long_abcdefghijklm"
+        ));
         // Prefix match but different length — must still fail
         assert!(!constant_time_eq("sentrix", "sentrix_extra"));
     }
@@ -1089,16 +1171,24 @@ mod tests {
         VALIDATE_CACHE_RESULT.store(test_valid, std::sync::atomic::Ordering::Relaxed);
 
         // Reading back should match
-        assert_eq!(VALIDATE_CACHE_HEIGHT.load(std::sync::atomic::Ordering::Relaxed), test_height);
-        assert_eq!(VALIDATE_CACHE_RESULT.load(std::sync::atomic::Ordering::Relaxed), test_valid);
+        assert_eq!(
+            VALIDATE_CACHE_HEIGHT.load(std::sync::atomic::Ordering::Relaxed),
+            test_height
+        );
+        assert_eq!(
+            VALIDATE_CACHE_RESULT.load(std::sync::atomic::Ordering::Relaxed),
+            test_valid
+        );
 
         // Different height means cache miss (simulate)
         let different_height = test_height + 1;
-        let is_cache_hit = VALIDATE_CACHE_HEIGHT.load(std::sync::atomic::Ordering::Relaxed) == different_height;
+        let is_cache_hit =
+            VALIDATE_CACHE_HEIGHT.load(std::sync::atomic::Ordering::Relaxed) == different_height;
         assert!(!is_cache_hit);
 
         // Same height is a cache hit
-        let is_same_hit = VALIDATE_CACHE_HEIGHT.load(std::sync::atomic::Ordering::Relaxed) == test_height;
+        let is_same_hit =
+            VALIDATE_CACHE_HEIGHT.load(std::sync::atomic::Ordering::Relaxed) == test_height;
         assert!(is_same_hit);
     }
 

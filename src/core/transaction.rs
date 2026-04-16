@@ -1,10 +1,10 @@
 // transaction.rs - Sentrix
 
-use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
-use secp256k1::{Secp256k1, Message, PublicKey, SecretKey};
-use secp256k1::ecdsa::Signature;
 use crate::types::error::{SentrixError, SentrixResult};
+use secp256k1::ecdsa::Signature;
+use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 pub const MIN_TX_FEE: u64 = 10_000; // 0.0001 SRX in sentri
 pub const COINBASE_ADDRESS: &str = "COINBASE";
@@ -15,29 +15,70 @@ pub const TOKEN_OP_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum TokenOp {
     // max_supply=0 means unlimited; #[serde(default)] for backward compatibility with older transactions
-    Deploy { name: String, symbol: String, decimals: u8, supply: u64, #[serde(default)] max_supply: u64 },
-    Transfer { contract: String, to: String, amount: u64 },
-    Burn { contract: String, amount: u64 },
-    Mint { contract: String, to: String, amount: u64 },
-    Approve { contract: String, spender: String, amount: u64 },
+    Deploy {
+        name: String,
+        symbol: String,
+        decimals: u8,
+        supply: u64,
+        #[serde(default)]
+        max_supply: u64,
+    },
+    Transfer {
+        contract: String,
+        to: String,
+        amount: u64,
+    },
+    Burn {
+        contract: String,
+        amount: u64,
+    },
+    Mint {
+        contract: String,
+        to: String,
+        amount: u64,
+    },
+    Approve {
+        contract: String,
+        spender: String,
+        amount: u64,
+    },
 }
 
 // ── Staking operation types (Voyager Phase 2a) ──────────────
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum StakingOp {
-    RegisterValidator { self_stake: u64, commission_rate: u16, public_key: String },
-    Delegate { validator: String, amount: u64 },
-    Undelegate { validator: String, amount: u64 },
-    Redelegate { from_validator: String, to_validator: String, amount: u64 },
+    RegisterValidator {
+        self_stake: u64,
+        commission_rate: u16,
+        public_key: String,
+    },
+    Delegate {
+        validator: String,
+        amount: u64,
+    },
+    Undelegate {
+        validator: String,
+        amount: u64,
+    },
+    Redelegate {
+        from_validator: String,
+        to_validator: String,
+        amount: u64,
+    },
     Unjail,
-    SubmitEvidence { height: u64, block_hash_a: String, block_hash_b: String, signature_a: String, signature_b: String },
+    SubmitEvidence {
+        height: u64,
+        block_hash_a: String,
+        block_hash_b: String,
+        signature_a: String,
+        signature_b: String,
+    },
 }
 
 impl StakingOp {
     pub fn encode(&self) -> SentrixResult<String> {
-        serde_json::to_string(self)
-            .map_err(|e| SentrixError::InvalidTransaction(e.to_string()))
+        serde_json::to_string(self).map_err(|e| SentrixError::InvalidTransaction(e.to_string()))
     }
 
     pub fn decode(data: &str) -> Option<Self> {
@@ -53,8 +94,7 @@ pub const STAKING_ADDRESS: &str = "0x0000000000000000000000000000000000000100";
 
 impl TokenOp {
     pub fn encode(&self) -> SentrixResult<String> {
-        serde_json::to_string(self)
-            .map_err(|e| SentrixError::InvalidTransaction(e.to_string()))
+        serde_json::to_string(self).map_err(|e| SentrixError::InvalidTransaction(e.to_string()))
     }
 
     pub fn decode(data: &str) -> Option<Self> {
@@ -72,8 +112,8 @@ pub struct Transaction {
     pub txid: String,
     pub from_address: String,
     pub to_address: String,
-    pub amount: u64,        // sentri
-    pub fee: u64,           // sentri
+    pub amount: u64, // sentri
+    pub fee: u64,    // sentri
     pub nonce: u64,
     pub data: String,
     pub timestamp: u64,     // unix timestamp seconds
@@ -126,7 +166,12 @@ impl Transaction {
         Ok(tx)
     }
 
-    pub fn new_coinbase(to_address: String, amount: u64, block_index: u64, block_timestamp: u64) -> Self {
+    pub fn new_coinbase(
+        to_address: String,
+        amount: u64,
+        block_index: u64,
+        block_timestamp: u64,
+    ) -> Self {
         let mut tx = Self {
             txid: String::new(),
             from_address: COINBASE_ADDRESS.to_string(),
@@ -190,7 +235,7 @@ impl Transaction {
             // Coinbase transactions have empty signature and public_key — no private key signs block rewards
             if !self.signature.is_empty() || !self.public_key.is_empty() {
                 return Err(SentrixError::InvalidTransaction(
-                    "coinbase transaction must not have signature or public_key".to_string()
+                    "coinbase transaction must not have signature or public_key".to_string(),
                 ));
             }
             return Ok(());
@@ -203,25 +248,24 @@ impl Transaction {
             return Ok(());
         }
 
-        let pub_key_bytes = hex::decode(&self.public_key)
-            .map_err(|_| SentrixError::InvalidSignature)?;
+        let pub_key_bytes =
+            hex::decode(&self.public_key).map_err(|_| SentrixError::InvalidSignature)?;
         let secp = Secp256k1::verification_only();
-        let public_key = PublicKey::from_slice(&pub_key_bytes)
-            .map_err(|_| SentrixError::InvalidSignature)?;
+        let public_key =
+            PublicKey::from_slice(&pub_key_bytes).map_err(|_| SentrixError::InvalidSignature)?;
 
         // Verify the public key cryptographically derives to from_address — prevents key substitution
         let derived_address = crate::wallet::wallet::Wallet::derive_address(&public_key);
         if derived_address != self.from_address {
-            return Err(SentrixError::InvalidTransaction(
-                format!("public key does not match from_address: expected {}, derived {}",
-                        self.from_address, derived_address)
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "public key does not match from_address: expected {}, derived {}",
+                self.from_address, derived_address
+            )));
         }
 
-        let sig_bytes = hex::decode(&self.signature)
-            .map_err(|_| SentrixError::InvalidSignature)?;
-        let sig = Signature::from_compact(&sig_bytes)
-            .map_err(|_| SentrixError::InvalidSignature)?;
+        let sig_bytes = hex::decode(&self.signature).map_err(|_| SentrixError::InvalidSignature)?;
+        let sig =
+            Signature::from_compact(&sig_bytes).map_err(|_| SentrixError::InvalidSignature)?;
 
         let payload = self.signing_payload();
         let msg = Self::payload_to_message(&payload)?;
@@ -237,15 +281,16 @@ impl Transaction {
         }
 
         if self.fee < MIN_TX_FEE {
-            return Err(SentrixError::InvalidTransaction(
-                format!("fee {} below minimum {}", self.fee, MIN_TX_FEE)
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "fee {} below minimum {}",
+                self.fee, MIN_TX_FEE
+            )));
         }
 
         // amount=0 is allowed for token operations and EVM contract calls (data field carries op/calldata)
         if self.amount == 0 && !TokenOp::is_token_op(&self.data) && !self.is_evm_tx() {
             return Err(SentrixError::InvalidTransaction(
-                "amount must be > 0 (unless token/EVM operation)".to_string()
+                "amount must be > 0 (unless token/EVM operation)".to_string(),
             ));
         }
 
@@ -258,9 +303,10 @@ impl Transaction {
 
         // Chain ID replay protection
         if self.chain_id != expected_chain_id {
-            return Err(SentrixError::InvalidTransaction(
-                format!("wrong chain_id: expected {}, got {}", expected_chain_id, self.chain_id)
-            ));
+            return Err(SentrixError::InvalidTransaction(format!(
+                "wrong chain_id: expected {}, got {}",
+                expected_chain_id, self.chain_id
+            )));
         }
 
         self.verify()?;
@@ -287,7 +333,8 @@ mod tests {
 
     #[test]
     fn test_coinbase_transaction() {
-        let tx = Transaction::new_coinbase("SRX_validator".to_string(), 100_000_000, 1, 1_712_620_800);
+        let tx =
+            Transaction::new_coinbase("SRX_validator".to_string(), 100_000_000, 1, 1_712_620_800);
         assert!(tx.is_coinbase());
         assert_eq!(tx.amount, 100_000_000);
         assert!(!tx.txid.is_empty());
@@ -298,9 +345,17 @@ mod tests {
         let (sk, pk) = make_keypair();
         let from = derive_addr(&pk);
         let tx = Transaction::new(
-            from, "SRX_bob".to_string(),
-            1_000_000, MIN_TX_FEE, 0, String::new(), TEST_CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            from,
+            "SRX_bob".to_string(),
+            1_000_000,
+            MIN_TX_FEE,
+            0,
+            String::new(),
+            TEST_CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         assert!(tx.verify().is_ok());
         assert!(!tx.txid.is_empty());
         assert!(!tx.signature.is_empty());
@@ -311,9 +366,17 @@ mod tests {
         let (sk, pk) = make_keypair();
         let from = derive_addr(&pk);
         let tx = Transaction::new(
-            from, "SRX_bob".to_string(),
-            1_000_000, MIN_TX_FEE, 0, String::new(), TEST_CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            from,
+            "SRX_bob".to_string(),
+            1_000_000,
+            MIN_TX_FEE,
+            0,
+            String::new(),
+            TEST_CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         assert!(tx.validate(0, TEST_CHAIN_ID).is_ok());
     }
 
@@ -322,9 +385,17 @@ mod tests {
         let (sk, pk) = make_keypair();
         let from = derive_addr(&pk);
         let tx = Transaction::new(
-            from, "SRX_bob".to_string(),
-            1_000_000, MIN_TX_FEE, 0, String::new(), TEST_CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            from,
+            "SRX_bob".to_string(),
+            1_000_000,
+            MIN_TX_FEE,
+            0,
+            String::new(),
+            TEST_CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         assert!(tx.validate(1, TEST_CHAIN_ID).is_err());
     }
 
@@ -333,9 +404,17 @@ mod tests {
         let (sk, pk) = make_keypair();
         let from = derive_addr(&pk);
         let tx = Transaction::new(
-            from, "SRX_bob".to_string(),
-            1_000_000, MIN_TX_FEE, 0, String::new(), TEST_CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            from,
+            "SRX_bob".to_string(),
+            1_000_000,
+            MIN_TX_FEE,
+            0,
+            String::new(),
+            TEST_CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         assert!(tx.validate(0, 9999).is_err()); // wrong chain
     }
 
@@ -344,9 +423,17 @@ mod tests {
         let (sk, pk) = make_keypair();
         let from = derive_addr(&pk);
         let tx = Transaction::new(
-            from, "SRX_bob".to_string(),
-            1_000_000, 1, 0, String::new(), TEST_CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            from,
+            "SRX_bob".to_string(),
+            1_000_000,
+            1,
+            0,
+            String::new(),
+            TEST_CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         assert!(tx.validate(0, TEST_CHAIN_ID).is_err());
     }
 
@@ -355,9 +442,17 @@ mod tests {
         let (sk, pk) = make_keypair();
         let from = derive_addr(&pk);
         let mut tx = Transaction::new(
-            from, "SRX_bob".to_string(),
-            1_000_000, MIN_TX_FEE, 0, String::new(), TEST_CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            from,
+            "SRX_bob".to_string(),
+            1_000_000,
+            MIN_TX_FEE,
+            0,
+            String::new(),
+            TEST_CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         tx.amount = 999_999_999;
         assert!(tx.verify().is_err());
     }
@@ -369,9 +464,17 @@ mod tests {
 
         // Create valid tx with correct from_address
         let mut tx = Transaction::new(
-            real_address.clone(), "SRX_bob".to_string(),
-            1_000_000, MIN_TX_FEE, 0, String::new(), TEST_CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            real_address.clone(),
+            "SRX_bob".to_string(),
+            1_000_000,
+            MIN_TX_FEE,
+            0,
+            String::new(),
+            TEST_CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         assert!(tx.verify().is_ok());
 
         // Tamper from_address to a different address
@@ -387,13 +490,29 @@ mod tests {
 
         // Test deterministic: same inputs → same payload
         let tx1 = Transaction::new(
-            from.clone(), "0xbob".to_string(),
-            1_000_000, MIN_TX_FEE, 0, String::new(), TEST_CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            from.clone(),
+            "0xbob".to_string(),
+            1_000_000,
+            MIN_TX_FEE,
+            0,
+            String::new(),
+            TEST_CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         let _tx2 = Transaction::new(
-            from.clone(), "0xbob".to_string(),
-            1_000_000, MIN_TX_FEE, 0, String::new(), TEST_CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            from.clone(),
+            "0xbob".to_string(),
+            1_000_000,
+            MIN_TX_FEE,
+            0,
+            String::new(),
+            TEST_CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         // Timestamps differ, but let's verify the format is valid JSON
         let payload = tx1.signing_payload();
         let parsed: serde_json::Value = serde_json::from_str(&payload).unwrap();
@@ -403,11 +522,17 @@ mod tests {
 
         // Test special chars in data field are properly escaped (not injected)
         let tx_xss = Transaction::new(
-            from.clone(), "0xbob".to_string(),
-            1_000_000, MIN_TX_FEE, 0,
+            from.clone(),
+            "0xbob".to_string(),
+            1_000_000,
+            MIN_TX_FEE,
+            0,
             r#"<script>alert("xss")</script>"#.to_string(),
-            TEST_CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            TEST_CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         let payload_xss = tx_xss.signing_payload();
         // Must be valid JSON — serde_json escapes the quotes in data field
         let parsed_xss: serde_json::Value = serde_json::from_str(&payload_xss).unwrap();
@@ -415,11 +540,17 @@ mod tests {
 
         // Test with quote injection attempt in data
         let tx_inject = Transaction::new(
-            from.clone(), "0xbob".to_string(),
-            1_000_000, MIN_TX_FEE, 0,
+            from.clone(),
+            "0xbob".to_string(),
+            1_000_000,
+            MIN_TX_FEE,
+            0,
             r#"","fee":0,"from":"attacker"#.to_string(),
-            TEST_CHAIN_ID, &sk, &pk,
-        ).unwrap();
+            TEST_CHAIN_ID,
+            &sk,
+            &pk,
+        )
+        .unwrap();
         let payload_inject = tx_inject.signing_payload();
         // Must still be valid JSON with the injection attempt as a plain string value
         let parsed_inject: serde_json::Value = serde_json::from_str(&payload_inject).unwrap();

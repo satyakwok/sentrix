@@ -24,7 +24,12 @@ impl Blockchain {
 
     // Paginated address history (limit + offset)
     // Returns transactions newest-first (most recent at offset=0), consistent across all endpoints.
-    pub fn get_address_history(&self, address: &str, limit: usize, offset: usize) -> Vec<serde_json::Value> {
+    pub fn get_address_history(
+        &self,
+        address: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Vec<serde_json::Value> {
         let mut history = Vec::new();
         let mut skipped = 0usize;
         // newest-first: reverse block order, reverse tx order within each block
@@ -63,7 +68,9 @@ impl Blockchain {
     // After CHAIN_WINDOW_SIZE blocks, historical blocks are evicted from memory.
     // Use the returned `is_partial` flag to warn users the count may be incomplete.
     pub fn get_address_tx_count(&self, address: &str) -> serde_json::Value {
-        let count = self.chain.iter()
+        let count = self
+            .chain
+            .iter()
             .flat_map(|b| &b.transactions)
             .filter(|tx| tx.from_address == address || tx.to_address == address)
             .count();
@@ -106,23 +113,30 @@ impl Blockchain {
         self.contracts.get_holders_list(contract)
     }
 
-    pub fn get_token_trades(&self, contract_addr: &str, limit: usize, offset: usize) -> Vec<serde_json::Value> {
+    pub fn get_token_trades(
+        &self,
+        contract_addr: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Vec<serde_json::Value> {
         let mut result = Vec::new();
         let mut skipped = 0usize;
         for block in self.chain.iter().rev() {
             for tx in block.transactions.iter() {
                 let entry = match TokenOp::decode(&tx.data) {
-                    Some(TokenOp::Transfer { contract, to, amount }) if contract == contract_addr => {
-                        Some(serde_json::json!({
-                            "type": "transfer",
-                            "from": tx.from_address,
-                            "to": to,
-                            "amount": amount,
-                            "txid": tx.txid,
-                            "block_index": block.index,
-                            "block_timestamp": block.timestamp,
-                        }))
-                    }
+                    Some(TokenOp::Transfer {
+                        contract,
+                        to,
+                        amount,
+                    }) if contract == contract_addr => Some(serde_json::json!({
+                        "type": "transfer",
+                        "from": tx.from_address,
+                        "to": to,
+                        "amount": amount,
+                        "txid": tx.txid,
+                        "block_index": block.index,
+                        "block_timestamp": block.timestamp,
+                    })),
                     Some(TokenOp::Burn { contract, amount }) if contract == contract_addr => {
                         Some(serde_json::json!({
                             "type": "burn",
@@ -134,17 +148,19 @@ impl Blockchain {
                             "block_timestamp": block.timestamp,
                         }))
                     }
-                    Some(TokenOp::Mint { contract, to, amount }) if contract == contract_addr => {
-                        Some(serde_json::json!({
-                            "type": "mint",
-                            "from": tx.from_address,
-                            "to": to,
-                            "amount": amount,
-                            "txid": tx.txid,
-                            "block_index": block.index,
-                            "block_timestamp": block.timestamp,
-                        }))
-                    }
+                    Some(TokenOp::Mint {
+                        contract,
+                        to,
+                        amount,
+                    }) if contract == contract_addr => Some(serde_json::json!({
+                        "type": "mint",
+                        "from": tx.from_address,
+                        "to": to,
+                        "amount": amount,
+                        "txid": tx.txid,
+                        "block_index": block.index,
+                        "block_timestamp": block.timestamp,
+                    })),
                     _ => None,
                 };
                 if let Some(e) = entry {
@@ -188,10 +204,10 @@ impl Blockchain {
 // ── Tests ─────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
-    use secp256k1::{Secp256k1, SecretKey, PublicKey};
-    use secp256k1::rand::rngs::OsRng;
-    use crate::core::transaction::{Transaction, MIN_TX_FEE};
     use crate::core::blockchain::{Blockchain, CHAIN_ID};
+    use crate::core::transaction::{MIN_TX_FEE, Transaction};
+    use secp256k1::rand::rngs::OsRng;
+    use secp256k1::{PublicKey, Secp256k1, SecretKey};
 
     fn make_keypair() -> (SecretKey, PublicKey) {
         let secp = Secp256k1::new();
@@ -204,7 +220,8 @@ mod tests {
 
     fn setup() -> Blockchain {
         let mut bc = Blockchain::new("admin".to_string());
-        bc.authority.add_validator_unchecked("v1".to_string(), "V1".to_string(), "pk1".to_string());
+        bc.authority
+            .add_validator_unchecked("v1".to_string(), "V1".to_string(), "pk1".to_string());
         bc
     }
 
@@ -232,9 +249,17 @@ mod tests {
         // Add two transactions and mine them in separate blocks
         for i in 0..2 {
             let tx = Transaction::new(
-                sender.clone(), RECV.to_string(),
-                100_000, MIN_TX_FEE, i, String::new(), CHAIN_ID, &sk, &pk,
-            ).unwrap();
+                sender.clone(),
+                RECV.to_string(),
+                100_000,
+                MIN_TX_FEE,
+                i,
+                String::new(),
+                CHAIN_ID,
+                &sk,
+                &pk,
+            )
+            .unwrap();
             bc.add_to_mempool(tx).unwrap();
             let block = bc.create_block("v1").unwrap();
             bc.add_block(block).unwrap();

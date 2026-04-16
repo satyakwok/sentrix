@@ -13,7 +13,12 @@ use sentrix::wallet::wallet::Wallet;
 fn setup_node_b(val: &Wallet) -> Blockchain {
     let mut bc = Blockchain::new(common::ADMIN.to_string());
     bc.authority
-        .add_validator(common::ADMIN, val.address.clone(), "Test Validator".to_string(), val.public_key.clone())
+        .add_validator(
+            common::ADMIN,
+            val.address.clone(),
+            "Test Validator".to_string(),
+            val.public_key.clone(),
+        )
         .expect("add_validator node B");
     bc
 }
@@ -37,7 +42,11 @@ fn test_two_node_sync_empty_blocks() {
     }
 
     // ── Assert both nodes are at identical state ───────────────────────────────
-    assert_eq!(bc_b.height(), bc_a.height(), "heights must match after sync");
+    assert_eq!(
+        bc_b.height(),
+        bc_a.height(),
+        "heights must match after sync"
+    );
     assert_eq!(bc_b.height(), 5);
 
     // All block hashes must be identical
@@ -71,10 +80,18 @@ fn test_two_node_sync_with_transactions() {
 
     // Fund a sender independently on both nodes (simulates genesis allocation parity)
     let sender = common::funded_wallet(&mut bc_a, 500_000_000); // 5 SRX
-    bc_b.accounts.credit(&sender.address, 500_000_000).expect("fund sender node B");
+    bc_b.accounts
+        .credit(&sender.address, 500_000_000)
+        .expect("fund sender node B");
 
     // Block 4: include a TX from sender → RECV
-    let tx = common::make_tx(&bc_a, &sender, common::RECV, 100_000_000, sentrix::core::transaction::MIN_TX_FEE);
+    let tx = common::make_tx(
+        &bc_a,
+        &sender,
+        common::RECV,
+        100_000_000,
+        sentrix::core::transaction::MIN_TX_FEE,
+    );
     bc_a.add_to_mempool(tx).expect("add_to_mempool");
     common::mine_block_with_mempool(&mut bc_a, &val.address);
 
@@ -107,7 +124,10 @@ fn test_two_node_sync_with_transactions() {
         "receiver balance mismatch after sync"
     );
 
-    assert!(bc_b.is_valid_chain_window(), "node B chain invalid after tx sync");
+    assert!(
+        bc_b.is_valid_chain_window(),
+        "node B chain invalid after tx sync"
+    );
 }
 
 /// Applying the same block twice must be rejected (duplicate block).
@@ -120,7 +140,8 @@ fn test_duplicate_block_rejected() {
 
     // Apply block 1 to B → should succeed
     let block = bc_a.get_block(1).expect("block 1").clone();
-    bc_b.add_block(block.clone()).expect("first apply should succeed");
+    bc_b.add_block(block.clone())
+        .expect("first apply should succeed");
 
     // Apply block 1 again → must fail (wrong height: expected 2, got 1)
     let result = bc_b.add_block(block);

@@ -3,17 +3,17 @@
 // Downtime: missed >50% in 100-block sliding window → 1% slash + 200 blocks jail
 // Double-sign: two blocks same height from same validator → 20% slash + permaban
 
+use crate::core::staking::StakeRegistry;
+use crate::types::error::{SentrixError, SentrixResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::types::error::{SentrixError, SentrixResult};
-use crate::core::staking::StakeRegistry;
 
 // ── Constants ────────────────────────────────────────────────
 
 pub const LIVENESS_WINDOW: u64 = 100;
 pub const MIN_SIGNED_PER_WINDOW: u64 = 50; // 50%
-pub const DOWNTIME_SLASH_BP: u16 = 100;     // 1% in basis points
-pub const DOWNTIME_JAIL_BLOCKS: u64 = 200;  // ~10 minutes
+pub const DOWNTIME_SLASH_BP: u16 = 100; // 1% in basis points
+pub const DOWNTIME_JAIL_BLOCKS: u64 = 200; // ~10 minutes
 pub const DOUBLE_SIGN_SLASH_BP: u16 = 2000; // 20%
 
 // ── Liveness Tracker ─────────────────────────────────────────
@@ -282,9 +282,12 @@ mod tests {
 
     fn setup_registry() -> StakeRegistry {
         let mut reg = StakeRegistry::new();
-        reg.register_validator("0xval1", MIN_SELF_STAKE, 1000, 0).unwrap();
-        reg.register_validator("0xval2", MIN_SELF_STAKE, 1000, 0).unwrap();
-        reg.register_validator("0xval3", MIN_SELF_STAKE, 1000, 0).unwrap();
+        reg.register_validator("0xval1", MIN_SELF_STAKE, 1000, 0)
+            .unwrap();
+        reg.register_validator("0xval2", MIN_SELF_STAKE, 1000, 0)
+            .unwrap();
+        reg.register_validator("0xval3", MIN_SELF_STAKE, 1000, 0)
+            .unwrap();
         reg.update_active_set();
         reg
     }

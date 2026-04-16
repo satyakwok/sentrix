@@ -1,11 +1,11 @@
 // trie/cache.rs - Sentrix — LRU-cached trie node access
 
-use std::num::NonZeroUsize;
-use std::sync::Mutex;
-use lru::LruCache;
 use crate::core::trie::node::{NodeHash, TrieNode};
 use crate::core::trie::storage::TrieStorage;
 use crate::types::error::SentrixResult;
+use lru::LruCache;
+use std::num::NonZeroUsize;
+use std::sync::Mutex;
 
 /// In-memory LRU cache sitting in front of persistent sled storage.
 /// The LRU is wrapped in a Mutex to allow shared-reference access (V7-M-03).
@@ -34,9 +34,7 @@ impl TrieCache {
     /// Acquire the LRU lock, mapping a poison error to SentrixError::Internal.
     fn lock_lru(&self) -> SentrixResult<std::sync::MutexGuard<'_, LruCache<NodeHash, TrieNode>>> {
         self.lru.lock().map_err(|e| {
-            crate::types::error::SentrixError::Internal(
-                format!("trie LRU lock poisoned: {e}")
-            )
+            crate::types::error::SentrixError::Internal(format!("trie LRU lock poisoned: {e}"))
         })
     }
 
@@ -97,8 +95,8 @@ mod tests {
     use crate::core::trie::node::TrieNode;
 
     fn temp_cache(capacity: usize) -> (tempfile::TempDir, TrieCache) {
-        let dir     = tempfile::TempDir::new().unwrap();
-        let db      = sled::open(dir.path()).unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
+        let db = sled::open(dir.path()).unwrap();
         let storage = crate::core::trie::storage::TrieStorage::new(&db).unwrap();
         (dir, TrieCache::new(storage, capacity))
     }
@@ -107,8 +105,15 @@ mod tests {
     #[test]
     fn test_configurable_capacity_evicts_lru() {
         let (_dir, cache) = temp_cache(2);
-        let mk_hash = |b: u8| { let mut h = [0u8; 32]; h[0] = b; h };
-        let node = TrieNode::Leaf { key: [0u8; 32], value_hash: [0u8; 32] };
+        let mk_hash = |b: u8| {
+            let mut h = [0u8; 32];
+            h[0] = b;
+            h
+        };
+        let node = TrieNode::Leaf {
+            key: [0u8; 32],
+            value_hash: [0u8; 32],
+        };
 
         cache.put_node(mk_hash(1), node.clone()).unwrap();
         cache.put_node(mk_hash(2), node.clone()).unwrap();
@@ -124,8 +129,15 @@ mod tests {
     #[test]
     fn test_delete_node_evicts_cache_and_storage() {
         let (_dir, cache) = temp_cache(10_000);
-        let hash = { let mut h = [0u8; 32]; h[0] = 0xFF; h };
-        let node = TrieNode::Leaf { key: [1u8; 32], value_hash: [2u8; 32] };
+        let hash = {
+            let mut h = [0u8; 32];
+            h[0] = 0xFF;
+            h
+        };
+        let node = TrieNode::Leaf {
+            key: [1u8; 32],
+            value_hash: [2u8; 32],
+        };
 
         cache.put_node(hash, node).unwrap();
         assert!(cache.get_node(&hash).unwrap().is_some());

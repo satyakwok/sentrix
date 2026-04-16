@@ -4,12 +4,12 @@
 // Proposer selected by weighted round-robin from active DPoS validator set.
 // Finality at 2/3+1 stake weight.
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use serde::{Deserialize, Serialize};
 // errors used by integration callers, not directly in this module
 use crate::core::bft_messages::{
-    Prevote, Precommit, BlockJustification, RoundStatus, supermajority_threshold,
+    BlockJustification, Precommit, Prevote, RoundStatus, supermajority_threshold,
 };
 use crate::core::staking::StakeRegistry;
 
@@ -18,7 +18,7 @@ use crate::core::staking::StakeRegistry;
 pub const PROPOSE_TIMEOUT_MS: u64 = 3_000;
 pub const PREVOTE_TIMEOUT_MS: u64 = 6_000;
 pub const PRECOMMIT_TIMEOUT_MS: u64 = 6_000;
-pub const TIMEOUT_INCREMENT_MS: u64 = 1_000;  // +1s per round for propose
+pub const TIMEOUT_INCREMENT_MS: u64 = 1_000; // +1s per round for propose
 pub const VOTE_TIMEOUT_INCREMENT_MS: u64 = 2_000; // +2s per round for votes
 pub const MAX_TIMEOUT_MS: u64 = 30_000;
 pub const MAX_ROUND: u32 = 20;
@@ -239,7 +239,9 @@ impl BftEngine {
         }
         tracing::info!(
             "BFT round catch-up: round {} → {} at height {}",
-            self.state.round, target_round, self.state.height,
+            self.state.round,
+            target_round,
+            self.state.height,
         );
         while self.state.round < target_round {
             self.state.advance_round();
@@ -253,7 +255,8 @@ impl BftEngine {
     pub fn is_proposer(&self, stake_registry: &StakeRegistry) -> bool {
         stake_registry
             .weighted_proposer(self.state.height, self.state.round)
-            .as_deref() == Some(self.our_address.as_str())
+            .as_deref()
+            == Some(self.our_address.as_str())
     }
 
     /// Get the expected proposer for current height+round
@@ -351,32 +354,35 @@ impl BftEngine {
             prevote.validator.clone(),
             (prevote.block_hash.clone(), stake),
         );
-        self.collector.add_prevote(prevote.block_hash.clone(), stake);
+        self.collector
+            .add_prevote(prevote.block_hash.clone(), stake);
 
         // Check for supermajority
-        if let Some(hash) = self.collector.prevote_supermajority(self.state.total_active_stake)
+        if let Some(hash) = self
+            .collector
+            .prevote_supermajority(self.state.total_active_stake)
             && self.state.phase == BftPhase::Prevote
         {
-                self.state.phase = BftPhase::Precommit;
-                self.phase_start = Instant::now();
+            self.state.phase = BftPhase::Precommit;
+            self.phase_start = Instant::now();
 
-                // Lock on hash if non-nil
-                if let Some(ref h) = hash {
-                    self.state.locked_hash = Some(h.clone());
-                    self.state.locked_round = Some(self.state.round);
-                }
-
-                if !self.state.our_precommit_cast {
-                    self.state.our_precommit_cast = true;
-                    return BftAction::BroadcastPrecommit(Precommit {
-                        height: self.state.height,
-                        round: self.state.round,
-                        block_hash: hash,
-                        validator: self.our_address.clone(),
-                        signature: vec![],
-                    });
-                }
+            // Lock on hash if non-nil
+            if let Some(ref h) = hash {
+                self.state.locked_hash = Some(h.clone());
+                self.state.locked_round = Some(self.state.round);
             }
+
+            if !self.state.our_precommit_cast {
+                self.state.our_precommit_cast = true;
+                return BftAction::BroadcastPrecommit(Precommit {
+                    height: self.state.height,
+                    round: self.state.round,
+                    block_hash: hash,
+                    validator: self.our_address.clone(),
+                    signature: vec![],
+                });
+            }
+        }
 
         BftAction::Wait
     }
@@ -401,30 +407,33 @@ impl BftEngine {
             prevote.validator.clone(),
             (prevote.block_hash.clone(), stake),
         );
-        self.collector.add_prevote(prevote.block_hash.clone(), stake);
+        self.collector
+            .add_prevote(prevote.block_hash.clone(), stake);
 
-        if let Some(hash) = self.collector.prevote_supermajority(self.state.total_active_stake)
+        if let Some(hash) = self
+            .collector
+            .prevote_supermajority(self.state.total_active_stake)
             && self.state.phase == BftPhase::Prevote
         {
-                self.state.phase = BftPhase::Precommit;
-                self.phase_start = Instant::now();
+            self.state.phase = BftPhase::Precommit;
+            self.phase_start = Instant::now();
 
-                if let Some(ref h) = hash {
-                    self.state.locked_hash = Some(h.clone());
-                    self.state.locked_round = Some(self.state.round);
-                }
-
-                if !self.state.our_precommit_cast {
-                    self.state.our_precommit_cast = true;
-                    return BftAction::BroadcastPrecommit(Precommit {
-                        height: self.state.height,
-                        round: self.state.round,
-                        block_hash: hash,
-                        validator: self.our_address.clone(),
-                        signature: vec![],
-                    });
-                }
+            if let Some(ref h) = hash {
+                self.state.locked_hash = Some(h.clone());
+                self.state.locked_round = Some(self.state.round);
             }
+
+            if !self.state.our_precommit_cast {
+                self.state.our_precommit_cast = true;
+                return BftAction::BroadcastPrecommit(Precommit {
+                    height: self.state.height,
+                    round: self.state.round,
+                    block_hash: hash,
+                    validator: self.our_address.clone(),
+                    signature: vec![],
+                });
+            }
+        }
 
         BftAction::Wait
     }
@@ -449,9 +458,13 @@ impl BftEngine {
             precommit.validator.clone(),
             (precommit.block_hash.clone(), stake),
         );
-        self.collector.add_precommit(precommit.block_hash.clone(), stake);
+        self.collector
+            .add_precommit(precommit.block_hash.clone(), stake);
 
-        if let Some(hash) = self.collector.precommit_supermajority(self.state.total_active_stake) {
+        if let Some(hash) = self
+            .collector
+            .precommit_supermajority(self.state.total_active_stake)
+        {
             match hash {
                 Some(block_hash) => {
                     // Block finalized!
@@ -536,7 +549,9 @@ impl BftEngine {
     pub fn on_round_status(&mut self, status: &RoundStatus) -> BftAction {
         if status.height > self.state.height {
             // Peer is ahead — we need to sync blocks, not BFT
-            return BftAction::SyncNeeded { peer_height: status.height };
+            return BftAction::SyncNeeded {
+                peer_height: status.height,
+            };
         }
         if status.height < self.state.height {
             // Peer is behind us — ignore
@@ -582,11 +597,14 @@ mod tests {
         let mut reg = StakeRegistry::new();
         for i in 0..21 {
             let addr = format!("0xval{:03}", i);
-            reg.register_validator(&addr, MIN_SELF_STAKE, 1000, 0).unwrap();
+            reg.register_validator(&addr, MIN_SELF_STAKE, 1000, 0)
+                .unwrap();
         }
         reg.update_active_set();
 
-        let total_stake: u64 = reg.active_set.iter()
+        let total_stake: u64 = reg
+            .active_set
+            .iter()
             .filter_map(|a| reg.get_validator(a))
             .map(|v| v.total_stake())
             .sum();
@@ -663,7 +681,8 @@ mod tests {
         let mut got_precommit = false;
         for i in 1..=needed {
             let pv = Prevote {
-                height: 100, round: 0,
+                height: 100,
+                round: 0,
                 block_hash: Some("hash_abc".into()),
                 validator: format!("0xval{:03}", i),
                 signature: vec![],
@@ -691,13 +710,20 @@ mod tests {
         let mut finalized = false;
         for i in 0..needed {
             let pc = Precommit {
-                height: 100, round: 0,
+                height: 100,
+                round: 0,
                 block_hash: Some("hash_abc".into()),
                 validator: format!("0xval{:03}", i),
                 signature: vec![],
             };
             let action = engine.on_precommit_weighted(&pc, per_val);
-            if let BftAction::FinalizeBlock { height, block_hash, justification, .. } = action {
+            if let BftAction::FinalizeBlock {
+                height,
+                block_hash,
+                justification,
+                ..
+            } = action
+            {
                 assert_eq!(height, 100);
                 assert_eq!(block_hash, "hash_abc");
                 assert!(justification.has_supermajority(total));
@@ -721,7 +747,8 @@ mod tests {
         let mut skipped = false;
         for i in 0..needed {
             let pc = Precommit {
-                height: 100, round: 0,
+                height: 100,
+                round: 0,
                 block_hash: None, // nil
                 validator: format!("0xval{:03}", i),
                 signature: vec![],
@@ -790,7 +817,8 @@ mod tests {
         engine.state.phase = BftPhase::Prevote;
 
         let pv = Prevote {
-            height: 100, round: 0,
+            height: 100,
+            round: 0,
             block_hash: Some("hash".into()),
             validator: "0xval001".into(),
             signature: vec![],
@@ -810,7 +838,8 @@ mod tests {
         engine.state.phase = BftPhase::Prevote;
 
         let pv = Prevote {
-            height: 999, round: 0, // wrong height
+            height: 999,
+            round: 0, // wrong height
             block_hash: Some("hash".into()),
             validator: "0xval001".into(),
             signature: vec![],
@@ -1029,7 +1058,8 @@ mod tests {
         // 2. Collect prevotes (15+ needed for 21 validators)
         for i in 1..=16 {
             let pv = Prevote {
-                height: 100, round: 0,
+                height: 100,
+                round: 0,
                 block_hash: Some("block_hash".into()),
                 validator: format!("0xval{:03}", i),
                 signature: vec![],
@@ -1042,7 +1072,8 @@ mod tests {
         let mut finalized = false;
         for i in 0..=16 {
             let pc = Precommit {
-                height: 100, round: 0,
+                height: 100,
+                round: 0,
                 block_hash: Some("block_hash".into()),
                 validator: format!("0xval{:03}", i),
                 signature: vec![],
@@ -1087,7 +1118,12 @@ mod tests {
         // 3. Self-precommit → finalize
         let action = engine.on_precommit_weighted(&precommit, our_stake);
         match action {
-            BftAction::FinalizeBlock { height, block_hash, justification, .. } => {
+            BftAction::FinalizeBlock {
+                height,
+                block_hash,
+                justification,
+                ..
+            } => {
                 assert_eq!(height, 500);
                 assert_eq!(block_hash, "solo_hash");
                 assert!(justification.has_supermajority(our_stake));

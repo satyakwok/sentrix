@@ -4,9 +4,9 @@
 // here until a dedicated documentation sprint adds top-level module docs.
 #![allow(missing_docs)]
 
-pub mod core;
-pub mod wallet;
-pub mod network;
 pub mod api;
+pub mod core;
+pub mod network;
 pub mod storage;
 pub mod types;
+pub mod wallet;

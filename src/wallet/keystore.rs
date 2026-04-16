@@ -1,22 +1,25 @@
 // keystore.rs - Sentrix
 
-use aes_gcm::{Aes256Gcm, Key, Nonce, aead::{Aead, KeyInit}};
+use crate::types::error::{SentrixError, SentrixResult};
+use crate::wallet::wallet::Wallet;
+use aes_gcm::{
+    Aes256Gcm, Key, Nonce,
+    aead::{Aead, KeyInit},
+};
+use argon2::{Algorithm, Argon2, Params, Version};
 use pbkdf2::pbkdf2_hmac;
-use sha2::Sha256;
-use argon2::{Argon2, Algorithm, Version, Params};
-use serde::{Deserialize, Serialize};
 use rand::RngCore;
 use rand::rngs::OsRng;
-use crate::wallet::wallet::Wallet;
-use crate::types::error::{SentrixError, SentrixResult};
+use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 
 #[cfg(test)]
 const PBKDF2_ITERATIONS: u32 = 600_000; // NIST SP 800-132 recommended minimum (v1, tests only)
 
 // Argon2id parameters (v2 keystore format) — memory-hard KDF for brute-force resistance
 const ARGON2_M_COST: u32 = 65_536; // 64 MiB
-const ARGON2_T_COST: u32 = 3;      // 3 iterations
-const ARGON2_P_COST: u32 = 4;      // 4 parallel lanes
+const ARGON2_T_COST: u32 = 3; // 3 iterations
+const ARGON2_P_COST: u32 = 4; // 4 parallel lanes
 
 const SALT_SIZE: usize = 16;
 const NONCE_SIZE: usize = 12;
@@ -42,10 +45,10 @@ pub struct KeystoreCrypto {
     pub argon2_t_cost: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub argon2_p_cost: Option<u32>,
-    pub salt: String,   // hex
-    pub nonce: String,  // hex
+    pub salt: String,       // hex
+    pub nonce: String,      // hex
     pub ciphertext: String, // hex
-    pub mac: String,    // hex — SHA-256(key[16..32] + ciphertext)
+    pub mac: String,        // hex — SHA-256(key[16..32] + ciphertext)
 }
 
 impl Keystore {
@@ -62,7 +65,8 @@ impl Keystore {
         let params = Params::new(ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST, Some(KEY_SIZE))
             .map_err(|e| SentrixError::KeystoreError(e.to_string()))?;
         let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-        argon2.hash_password_into(password.as_bytes(), &salt, &mut key_bytes)
+        argon2
+            .hash_password_into(password.as_bytes(), &salt, &mut key_bytes)
             .map_err(|e| SentrixError::KeystoreError(e.to_string()))?;
 
         let private_key_bytes = hex::decode(wallet.secret_key_hex())
@@ -76,7 +80,7 @@ impl Keystore {
             .encrypt(nonce, private_key_bytes.as_ref())
             .map_err(|e| SentrixError::KeystoreError(e.to_string()))?;
 
-        use sha2::{Sha256 as Sha256Hasher, Digest};
+        use sha2::{Digest, Sha256 as Sha256Hasher};
         let mut mac_input = Vec::new();
         mac_input.extend_from_slice(&key_bytes[16..32]);
         mac_input.extend_from_slice(&ciphertext);
@@ -119,7 +123,8 @@ impl Keystore {
                 let params = Params::new(m, t, p, Some(KEY_SIZE))
                     .map_err(|e| SentrixError::KeystoreError(e.to_string()))?;
                 let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-                argon2.hash_password_into(password.as_bytes(), &salt, &mut key_bytes)
+                argon2
+                    .hash_password_into(password.as_bytes(), &salt, &mut key_bytes)
                     .map_err(|e| SentrixError::KeystoreError(e.to_string()))?;
             }
             "pbkdf2-sha256" => {
@@ -131,14 +136,15 @@ impl Keystore {
                 );
             }
             other => {
-                return Err(SentrixError::KeystoreError(
-                    format!("unsupported KDF: {}", other)
-                ));
+                return Err(SentrixError::KeystoreError(format!(
+                    "unsupported KDF: {}",
+                    other
+                )));
             }
         }
 
         // Verify MAC before decryption
-        use sha2::{Sha256 as Sha256Hasher, Digest};
+        use sha2::{Digest, Sha256 as Sha256Hasher};
         let mut mac_input = Vec::new();
         mac_input.extend_from_slice(&key_bytes[16..32]);
         mac_input.extend_from_slice(&ciphertext);
@@ -298,7 +304,12 @@ mod tests {
         OsRng.fill_bytes(&mut nonce_bytes);
 
         let mut key_bytes = [0u8; KEY_SIZE];
-        pbkdf2_hmac::<Sha256>(password.as_bytes(), &salt, PBKDF2_ITERATIONS, &mut key_bytes);
+        pbkdf2_hmac::<Sha256>(
+            password.as_bytes(),
+            &salt,
+            PBKDF2_ITERATIONS,
+            &mut key_bytes,
+        );
 
         let private_key_bytes = hex::decode(wallet.secret_key_hex()).unwrap();
         let cipher_key = Key::<Aes256Gcm>::from_slice(&key_bytes);
@@ -306,7 +317,7 @@ mod tests {
         let nonce = Nonce::from_slice(&nonce_bytes);
         let ciphertext = cipher.encrypt(nonce, private_key_bytes.as_ref()).unwrap();
 
-        use sha2::{Sha256 as Sha256Hasher, Digest};
+        use sha2::{Digest, Sha256 as Sha256Hasher};
         let mut mac_input = Vec::new();
         mac_input.extend_from_slice(&key_bytes[16..32]);
         mac_input.extend_from_slice(&ciphertext);
@@ -348,7 +359,12 @@ mod tests {
         OsRng.fill_bytes(&mut nonce_bytes);
 
         let mut key_bytes = [0u8; KEY_SIZE];
-        pbkdf2_hmac::<Sha256>(password.as_bytes(), &salt, PBKDF2_ITERATIONS, &mut key_bytes);
+        pbkdf2_hmac::<Sha256>(
+            password.as_bytes(),
+            &salt,
+            PBKDF2_ITERATIONS,
+            &mut key_bytes,
+        );
 
         let private_key_bytes = hex::decode(wallet.secret_key_hex()).unwrap();
         let cipher_key = Key::<Aes256Gcm>::from_slice(&key_bytes);
@@ -356,7 +372,7 @@ mod tests {
         let nonce = Nonce::from_slice(&nonce_bytes);
         let ciphertext = cipher.encrypt(nonce, private_key_bytes.as_ref()).unwrap();
 
-        use sha2::{Sha256 as Sha256Hasher, Digest};
+        use sha2::{Digest, Sha256 as Sha256Hasher};
         let mut mac_input = Vec::new();
         mac_input.extend_from_slice(&key_bytes[16..32]);
         mac_input.extend_from_slice(&ciphertext);
@@ -385,7 +401,10 @@ mod tests {
         // Migrate
         let v2_ks = v1_ks.migrate_to_argon2id(password).unwrap();
         assert_eq!(v2_ks.version, 2, "migrated keystore must be version 2");
-        assert_eq!(v2_ks.crypto.kdf, "argon2id", "migrated keystore must use argon2id");
+        assert_eq!(
+            v2_ks.crypto.kdf, "argon2id",
+            "migrated keystore must use argon2id"
+        );
         assert_eq!(v2_ks.address, wallet.address);
 
         // Decrypting the migrated keystore must yield the same key
@@ -441,6 +460,10 @@ mod tests {
         let result = ks.decrypt("pw");
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("unsupported KDF"), "Expected unsupported KDF error, got: {}", err);
+        assert!(
+            err.contains("unsupported KDF"),
+            "Expected unsupported KDF error, got: {}",
+            err
+        );
     }
 }
