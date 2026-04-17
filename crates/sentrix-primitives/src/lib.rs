@@ -6,7 +6,9 @@
 
 #![allow(missing_docs)]
 
+pub mod account;
 pub mod error;
 
 // Re-export commonly used types at crate root for convenience.
+pub use account::{Account, AccountDB, EMPTY_CODE_HASH, EMPTY_STORAGE_ROOT, SENTRI_PER_SRX};
 pub use error::{SentrixError, SentrixResult};
