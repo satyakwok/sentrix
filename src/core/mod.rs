@@ -8,12 +8,13 @@ pub mod block_executor;
 pub mod block_producer;
 pub mod blockchain;
 pub mod chain_queries;
-pub mod epoch;
+// Re-export from sentrix-staking crate
+pub use sentrix_staking::epoch;
+pub use sentrix_staking::slashing;
+pub use sentrix_staking::staking;
 pub mod evm;
 pub mod mempool;
 pub mod merkle;
-pub mod slashing;
-pub mod staking;
 pub mod state_export;
 pub mod token_ops;
 pub mod transaction;
