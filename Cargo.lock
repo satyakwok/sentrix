@@ -4736,7 +4736,7 @@ dependencies = [
 
 [[package]]
 name = "sentrix"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "aes-gcm",
  "alloy-consensus",
@@ -4759,6 +4759,7 @@ dependencies = [
  "rand 0.8.5",
  "revm",
  "secp256k1 0.29.1",
+ "sentrix-primitives",
  "serde",
  "serde_json",
  "sha2",
@@ -4774,6 +4775,15 @@ dependencies = [
  "tracing-subscriber 0.3.23",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "sentrix-primitives"
+version = "1.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
