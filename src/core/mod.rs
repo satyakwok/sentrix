@@ -14,6 +14,7 @@ pub mod mempool;
 pub mod merkle;
 pub mod slashing;
 pub mod staking;
+pub mod state_export;
 pub mod token_ops;
 pub mod transaction;
 pub mod trie;

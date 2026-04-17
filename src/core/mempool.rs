@@ -136,6 +136,13 @@ impl Blockchain {
         self.mempool.len()
     }
 
+    /// Drop all pending transactions from the mempool. Used by the CLI
+    /// `sentrix mempool clear` command to recover from a stuck-mempool
+    /// incident (e.g. batch of bad-nonce txs blocking block production).
+    pub fn clear_mempool(&mut self) {
+        self.mempool.clear();
+    }
+
     /// Removes transactions older than MEMPOOL_MAX_AGE_SECS.
     /// Called automatically after each block is added; also callable manually.
     pub fn prune_mempool(&mut self) {

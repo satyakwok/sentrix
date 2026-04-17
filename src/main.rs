@@ -123,6 +123,16 @@ enum Commands {
         #[command(subcommand)]
         action: TokenCommands,
     },
+    /// State export/import/snapshot tools
+    State {
+        #[command(subcommand)]
+        action: StateCommands,
+    },
+    /// Mempool management
+    Mempool {
+        #[command(subcommand)]
+        action: MempoolCommands,
+    },
     /// Generate all genesis wallets
     GenesisWallets,
 }
@@ -281,6 +291,40 @@ enum ChainCommands {
     ResetTrie,
 }
 
+#[derive(Subcommand)]
+enum StateCommands {
+    /// Export chain state at current height to a JSON snapshot file.
+    /// Run while the node is STOPPED so the state is consistent.
+    Export {
+        /// Output file path (default: state_<height>.json)
+        #[arg(long)]
+        output: Option<String>,
+    },
+    /// Import chain state from a snapshot file, replacing current state.
+    /// Run while the node is STOPPED.
+    Import {
+        /// Input snapshot file
+        input: String,
+        /// Skip confirmation prompt (required for non-interactive use)
+        #[arg(long)]
+        force: bool,
+    },
+    /// Verify a snapshot file's integrity without importing.
+    Verify {
+        /// Snapshot file to verify
+        input: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum MempoolCommands {
+    /// Clear all pending transactions from the mempool.
+    /// Run while the node is STOPPED. Useful after a stuck-mempool incident.
+    Clear,
+    /// Show mempool stats (can run while node is stopped).
+    Stats,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -413,6 +457,17 @@ async fn main() -> anyhow::Result<()> {
                 cmd_token_info(&contract)?;
             }
             TokenCommands::List => cmd_token_list()?,
+        },
+
+        Commands::State { action } => match action {
+            StateCommands::Export { output } => cmd_state_export(output)?,
+            StateCommands::Import { input, force } => cmd_state_import(&input, force)?,
+            StateCommands::Verify { input } => cmd_state_verify(&input)?,
+        },
+
+        Commands::Mempool { action } => match action {
+            MempoolCommands::Clear => cmd_mempool_clear()?,
+            MempoolCommands::Stats => cmd_mempool_stats()?,
         },
 
         Commands::Balance { address } => cmd_balance(&address)?,
@@ -1669,6 +1724,87 @@ fn cmd_chain_reset_trie() -> anyhow::Result<()> {
     println!(
         "Trie state cleared. Start the node normally — it will rebuild the trie from AccountDB."
     );
+    Ok(())
+}
+
+fn cmd_state_export(output: Option<String>) -> anyhow::Result<()> {
+    let storage = Storage::open(&get_db_path())?;
+    let bc = storage
+        .load_blockchain()?
+        .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
+
+    let snapshot = bc.export_state()?;
+    let out_path = output.unwrap_or_else(|| format!("state_{}.json", snapshot.metadata.height));
+    let json = serde_json::to_string_pretty(&snapshot)?;
+    std::fs::write(&out_path, &json)?;
+    println!(
+        "State exported: {} ({} accounts, {} validators, {:.4} SRX total)",
+        out_path,
+        snapshot.accounts.len(),
+        snapshot.validators.len(),
+        snapshot.accounts.iter().map(|a| a.balance).sum::<u64>() as f64 / 100_000_000.0
+    );
+    println!("Height: {}", snapshot.metadata.height);
+    println!("Chain ID: {}", snapshot.metadata.chain_id);
+    Ok(())
+}
+
+fn cmd_state_import(input: &str, force: bool) -> anyhow::Result<()> {
+    if !force {
+        anyhow::bail!(
+            "State import replaces ALL current accounts, validators, and contracts.\n\
+             This is destructive. Pass --force to confirm."
+        );
+    }
+
+    let json = std::fs::read_to_string(input)?;
+    let snapshot: sentrix::core::state_export::StateSnapshot = serde_json::from_str(&json)?;
+
+    // Verify first
+    Blockchain::verify_snapshot(&snapshot)?;
+
+    let storage = Storage::open(&get_db_path())?;
+    let mut bc = storage
+        .load_blockchain()?
+        .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
+
+    let count = bc.import_state(&snapshot)?;
+    storage.save_blockchain(&bc)?;
+
+    println!(
+        "State imported: {} accounts from snapshot at height {}",
+        count, snapshot.metadata.height
+    );
+    println!("Restart the node to rebuild the state trie.");
+    Ok(())
+}
+
+fn cmd_state_verify(input: &str) -> anyhow::Result<()> {
+    let json = std::fs::read_to_string(input)?;
+    let snapshot: sentrix::core::state_export::StateSnapshot = serde_json::from_str(&json)?;
+    let summary = Blockchain::verify_snapshot(&snapshot)?;
+    println!("{}", summary);
+    Ok(())
+}
+
+fn cmd_mempool_clear() -> anyhow::Result<()> {
+    let storage = Storage::open(&get_db_path())?;
+    let mut bc = storage
+        .load_blockchain()?
+        .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
+    let old_size = bc.mempool_size();
+    bc.clear_mempool();
+    storage.save_blockchain(&bc)?;
+    println!("Mempool cleared: {} transactions removed", old_size);
+    Ok(())
+}
+
+fn cmd_mempool_stats() -> anyhow::Result<()> {
+    let storage = Storage::open(&get_db_path())?;
+    let bc = storage
+        .load_blockchain()?
+        .ok_or_else(|| anyhow::anyhow!("Chain not initialized."))?;
+    println!("Mempool size: {} transactions", bc.mempool_size());
     Ok(())
 }
 
