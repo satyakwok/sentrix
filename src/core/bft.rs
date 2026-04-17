@@ -21,7 +21,7 @@ pub const PRECOMMIT_TIMEOUT_MS: u64 = 6_000;
 pub const TIMEOUT_INCREMENT_MS: u64 = 1_000; // +1s per round for propose
 pub const VOTE_TIMEOUT_INCREMENT_MS: u64 = 2_000; // +2s per round for votes
 pub const MAX_TIMEOUT_MS: u64 = 30_000;
-pub const MAX_ROUND: u32 = 20;
+pub const MAX_ROUND: u32 = 100;
 
 // ── BFT State ────────────────────────────────────────────────
 
@@ -353,10 +353,11 @@ impl BftEngine {
         if prevote.height != self.state.height {
             return BftAction::Wait;
         }
-        // Round catch-up: fast-forward if peer is ahead
-        if prevote.round > self.state.round {
-            self.catch_up_round(prevote.round);
-        }
+        // Only process votes for our current round. Votes from higher rounds
+        // are silently dropped — we'll advance to that round naturally via
+        // timeout or RoundStatus gossip. This prevents the "validator
+        // leapfrog" problem where a single future-round vote clears all
+        // collected votes for the current round, making quorum unreachable.
         if prevote.round != self.state.round {
             return BftAction::Wait;
         }
@@ -404,10 +405,9 @@ impl BftEngine {
         if precommit.height != self.state.height {
             return BftAction::Wait;
         }
-        // Round catch-up: fast-forward if peer is ahead
-        if precommit.round > self.state.round {
-            self.catch_up_round(precommit.round);
-        }
+        // Same as prevote: only process votes for current round. Future-round
+        // precommits are dropped — round advancement happens via timeout or
+        // RoundStatus gossip only.
         if precommit.round != self.state.round {
             return BftAction::Wait;
         }
