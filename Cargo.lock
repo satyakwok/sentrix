@@ -4813,8 +4813,12 @@ dependencies = [
 name = "sentrix-primitives"
 version = "1.3.0"
 dependencies = [
+ "hex",
+ "secp256k1 0.29.1",
  "serde",
  "serde_json",
+ "sha2",
+ "sha3 0.11.0",
  "thiserror 1.0.69",
  "tracing",
 ]

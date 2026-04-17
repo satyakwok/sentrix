@@ -93,67 +93,11 @@ impl Precommit {
     }
 }
 
-// ── Block Justification ──────────────────────────────────────
+// ── Block Justification — re-exported from sentrix-primitives ───
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignedPrecommit {
-    pub validator: String,
-    pub block_hash: String,
-    pub signature: Vec<u8>,
-    pub stake_weight: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct BlockJustification {
-    pub height: u64,
-    pub round: u32,
-    pub block_hash: String,
-    pub precommits: Vec<SignedPrecommit>,
-}
-
-impl BlockJustification {
-    pub fn new(height: u64, round: u32, block_hash: String) -> Self {
-        Self {
-            height,
-            round,
-            block_hash,
-            precommits: Vec::new(),
-        }
-    }
-
-    pub fn add_precommit(&mut self, validator: String, signature: Vec<u8>, stake_weight: u64) {
-        self.precommits.push(SignedPrecommit {
-            validator,
-            block_hash: self.block_hash.clone(),
-            signature,
-            stake_weight,
-        });
-    }
-
-    /// Total stake weight of all precommits
-    pub fn total_weight(&self) -> u64 {
-        self.precommits.iter().map(|p| p.stake_weight).sum()
-    }
-
-    /// Check if we have supermajority (2/3+1 by stake weight)
-    pub fn has_supermajority(&self, total_stake: u64) -> bool {
-        if total_stake == 0 {
-            return false;
-        }
-        self.total_weight() >= supermajority_threshold(total_stake)
-    }
-
-    pub fn signer_count(&self) -> usize {
-        self.precommits.len()
-    }
-}
-
-// ── Helpers ──────────────────────────────────────────────────
-
-/// Calculate 2/3+1 threshold for a given total stake
-pub fn supermajority_threshold(total_stake: u64) -> u64 {
-    (total_stake as u128 * 2 / 3 + 1) as u64
-}
+pub use sentrix_primitives::justification::{
+    BlockJustification, SignedPrecommit, supermajority_threshold,
+};
 
 // ── BFT Network Message Wrapper ──────────────────────────────
 
