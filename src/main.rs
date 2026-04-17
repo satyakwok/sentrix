@@ -914,7 +914,8 @@ async fn cmd_start(
                 // This is the ONLY round-sync mechanism now that
                 // vote-triggered catch-up has been removed.
                 voyager_tick_count += 1;
-                if voyager_tick_count.is_multiple_of(50)
+                // Broadcast every 2s (20 ticks × 100ms) for fast convergence.
+                if voyager_tick_count.is_multiple_of(20)
                     && let Some(ref bft) = bft_engine
                 {
                     let status = bft.build_round_status();

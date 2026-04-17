@@ -15,9 +15,13 @@ use crate::core::staking::StakeRegistry;
 
 // ── Timeouts ─────────────────────────────────────────────────
 
-pub const PROPOSE_TIMEOUT_MS: u64 = 3_000;
-pub const PREVOTE_TIMEOUT_MS: u64 = 6_000;
-pub const PRECOMMIT_TIMEOUT_MS: u64 = 6_000;
+// Timeouts tuned for 4-validator testnet with ~100ms localhost latency.
+// Round 0 must give enough time for all validators to start up + exchange
+// their first proposal. Previous 3s propose caused premature nil-prevotes
+// when validators started at slightly different times.
+pub const PROPOSE_TIMEOUT_MS: u64 = 10_000;
+pub const PREVOTE_TIMEOUT_MS: u64 = 10_000;
+pub const PRECOMMIT_TIMEOUT_MS: u64 = 10_000;
 pub const TIMEOUT_INCREMENT_MS: u64 = 1_000; // +1s per round for propose
 pub const VOTE_TIMEOUT_INCREMENT_MS: u64 = 2_000; // +2s per round for votes
 pub const MAX_TIMEOUT_MS: u64 = 30_000;
@@ -957,17 +961,17 @@ mod tests {
 
     #[test]
     fn test_propose_timeout_values() {
-        assert_eq!(propose_timeout(0), Duration::from_millis(3_000));
-        assert_eq!(propose_timeout(1), Duration::from_millis(4_000));
-        assert_eq!(propose_timeout(10), Duration::from_millis(13_000));
+        assert_eq!(propose_timeout(0), Duration::from_millis(10_000));
+        assert_eq!(propose_timeout(1), Duration::from_millis(11_000));
+        assert_eq!(propose_timeout(10), Duration::from_millis(20_000));
         assert_eq!(propose_timeout(100), Duration::from_millis(30_000)); // capped
     }
 
     #[test]
     fn test_prevote_timeout_values() {
-        assert_eq!(prevote_timeout(0), Duration::from_millis(6_000));
-        assert_eq!(prevote_timeout(1), Duration::from_millis(8_000));
-        assert_eq!(prevote_timeout(12), Duration::from_millis(30_000)); // capped
+        assert_eq!(prevote_timeout(0), Duration::from_millis(10_000));
+        assert_eq!(prevote_timeout(1), Duration::from_millis(12_000));
+        assert_eq!(prevote_timeout(10), Duration::from_millis(30_000)); // capped
     }
 
     #[test]
