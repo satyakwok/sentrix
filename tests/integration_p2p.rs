@@ -9,7 +9,7 @@
 // This test prevents v1.3.0-style regressions where compilation and unit
 // tests pass but runtime P2P networking is broken.
 
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::unwrap_used, missing_docs)]
 
 use sentrix::core::blockchain::Blockchain;
 use sentrix::network::libp2p_node::{LibP2pNode, make_multiaddr};
