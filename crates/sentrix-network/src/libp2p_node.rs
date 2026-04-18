@@ -815,13 +815,27 @@ async fn on_inbound_request(
         }
 
         // ── NewBlock — apply to chain (spawned to avoid blocking swarm) ──
+        // H-01: fast-reject cross-chain blocks at the network boundary.
+        // The transaction-level `tx.validate(.., chain_id)` inside add_block
+        // still catches this downstream, but rejecting up front avoids
+        // acquiring the chain write lock and spawning a doomed task.
         SentrixRequest::NewBlock { block } => {
-            // ACK immediately so peer doesn't timeout waiting for response
             let _ = swarm
                 .behaviour_mut()
                 .rr
                 .send_response(channel, SentrixResponse::Ack);
-            // Process block in background — never hold write lock in swarm loop
+            if let Some(tx) = block.transactions.iter().find(|t| !t.is_coinbase())
+                && tx.chain_id != our_chain_id
+            {
+                tracing::warn!(
+                    "libp2p: dropping block {} from {}: chain_id mismatch ({} vs {})",
+                    block.index,
+                    peer,
+                    tx.chain_id,
+                    our_chain_id
+                );
+                return;
+            }
             let bc = blockchain.clone();
             let etx = event_tx.clone();
             tokio::spawn(async move {
@@ -843,11 +857,21 @@ async fn on_inbound_request(
         }
 
         // ── NewTransaction — add to mempool (spawned) ────
+        // H-01: reject cross-chain transactions at the network boundary.
         SentrixRequest::NewTransaction { transaction } => {
             let _ = swarm
                 .behaviour_mut()
                 .rr
                 .send_response(channel, SentrixResponse::Ack);
+            if transaction.chain_id != our_chain_id {
+                tracing::warn!(
+                    "libp2p: dropping tx from {}: chain_id mismatch ({} vs {})",
+                    peer,
+                    transaction.chain_id,
+                    our_chain_id
+                );
+                return;
+            }
             let bc = blockchain.clone();
             let etx = event_tx.clone();
             tokio::spawn(async move {
