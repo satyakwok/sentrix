@@ -14,6 +14,17 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Parallel tx execution (rayon)
 - Light client justification verification
 
+### Security
+- **C-06 — Removed `--validator-key <hex>` CLI flag.** Private keys passed
+  as CLI arguments leak via `ps aux`, shell history, and process
+  snapshots. Validators must now use `--validator-keystore <path>`
+  (encrypted Argon2id v2 keystore) or `SENTRIX_VALIDATOR_KEY` env var.
+  **Breaking change for validator operators.**
+- **C-06 hardening — Wallet zeroize plumbed through startup.** The
+  validator key no longer round-trips through an unzeroed heap `String`
+  inside `cmd_start`; the `Wallet`'s `Zeroizing<[u8; 32]>` field is the
+  only owner of the secret bytes after key resolution.
+
 ---
 
 ## [2.0.0] — 2026-04-18

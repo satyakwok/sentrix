@@ -98,12 +98,19 @@ enum Commands {
         #[command(subcommand)]
         action: ValidatorCommands,
     },
-    /// Start the node (P2P + API + validator loop)
+    /// Start the node (P2P + API + validator loop).
+    ///
+    /// Validator key sources, tried in order:
+    ///   1. `--validator-keystore <path>` (encrypted Argon2id v2 keystore;
+    ///      password from `SENTRIX_WALLET_PASSWORD` env or interactive prompt)
+    ///   2. `SENTRIX_VALIDATOR_KEY` env var (raw hex private key)
+    ///
+    /// Without either, the node runs in relay (non-producer) mode.
+    ///
+    /// The legacy `--validator-key <hex>` flag was removed in v2.0.1 (audit
+    /// C-06): CLI args are visible in `ps aux` and shell history.
     Start {
-        /// Validator private key hex (optional — node runs in relay mode if not set)
-        #[arg(long)]
-        validator_key: Option<String>,
-        /// Path to encrypted keystore file (alternative to --validator-key)
+        /// Path to encrypted keystore file (preferred validator key source).
         #[arg(long)]
         validator_keystore: Option<String>,
         /// P2P port
@@ -408,7 +415,6 @@ async fn main() -> anyhow::Result<()> {
         },
 
         Commands::Start {
-            validator_key,
             validator_keystore,
             port,
             peers,
@@ -437,21 +443,30 @@ async fn main() -> anyhow::Result<()> {
                     g
                 }
             };
-            // Resolve validator key: --validator-key > --validator-keystore > env var
-            let resolved_key = if let Some(key) = validator_key {
-                Some(key)
-            } else if let Some(ks_path) = validator_keystore {
-                // Decrypt keystore to get private key
+            // Resolve validator wallet: --validator-keystore > SENTRIX_VALIDATOR_KEY env.
+            // The raw `--validator-key <hex>` CLI flag was removed in v2.0.1 (C-06):
+            // CLI arguments leak via `ps aux`, shell history, and process snapshots.
+            //
+            // Construct the `Wallet` here so the secret never flows through the
+            // call chain as a heap `String` (which would not be zeroed on drop).
+            // `Wallet`'s `secret_key_bytes: Zeroizing<[u8; 32]>` field guarantees
+            // the secret is wiped from memory when the wallet drops.
+            let validator: Option<Wallet> = if let Some(ks_path) = validator_keystore {
                 let pwd = resolve_password(None)?;
                 let keystore = Keystore::load(&ks_path)?;
                 let wallet = keystore.decrypt(&pwd)?;
                 println!("Keystore decrypted: {}", wallet.address);
-                Some(wallet.secret_key_hex())
+                Some(wallet)
+            } else if let Ok(raw) = std::env::var("SENTRIX_VALIDATOR_KEY") {
+                // Wrap the env var in `Zeroizing` so the source `String`'s
+                // backing allocation is wiped after we derive the wallet.
+                let key_hex = zeroize::Zeroizing::new(raw);
+                Some(Wallet::from_private_key(&key_hex)?)
             } else {
-                std::env::var("SENTRIX_VALIDATOR_KEY").ok()
+                None
             };
             let _ = genesis_cfg; // retained for future wiring into Blockchain::new
-            cmd_start(resolved_key, port, peers).await?;
+            cmd_start(validator, port, peers).await?;
         }
 
         Commands::Chain { action } => match action {
@@ -808,7 +823,10 @@ fn cmd_validator_rename(address: &str, new_name: &str, admin_key: &str) -> anyho
 }
 
 async fn cmd_start(
-    validator_key: Option<String>,
+    // Take the validator wallet by value so the caller's `Zeroizing` envelope
+    // for the env-var path drops *before* we hold the `Wallet` here. The
+    // wallet's own `Zeroizing<[u8; 32]>` keeps the secret bytes wiped on drop.
+    validator: Option<Wallet>,
     port: u16,
     peers_str: String,
 ) -> anyhow::Result<()> {
@@ -891,8 +909,7 @@ async fn cmd_start(
         tokio::sync::mpsc::channel::<sentrix::core::bft_messages::BftMessage>(256);
 
     // Validator loop
-    if let Some(key_hex) = validator_key {
-        let wallet = Wallet::from_private_key(&key_hex)?;
+    if let Some(wallet) = validator {
         println!("Validator mode: {}", wallet.address);
         let shared_clone = shared.clone();
         let storage_clone = storage.clone();
