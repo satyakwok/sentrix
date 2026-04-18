@@ -5,7 +5,7 @@
 use crate::error::{StorageError, StorageResult};
 use crate::tables::ALL_TABLES;
 use libmdbx::{
-    Database, DatabaseOptions, NoWriteMap, TableFlags, Transaction, WriteFlags, RO, RW,
+    Database, DatabaseOptions, NoWriteMap, TableFlags, Transaction, WriteFlags, RW,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use std::path::Path;
@@ -24,10 +24,10 @@ impl MdbxStorage {
     pub fn open(path: &Path) -> StorageResult<Self> {
         std::fs::create_dir_all(path).map_err(|e| StorageError::Other(e.to_string()))?;
 
-        let mut opts = DatabaseOptions::default();
-        opts.max_tables = Some(16);
-
-        let db = Database::<NoWriteMap>::open_with_options(path, opts)
+        let db = Database::<NoWriteMap>::open_with_options(path, DatabaseOptions {
+            max_tables: Some(16),
+            ..Default::default()
+        })
             .map_err(|e| StorageError::Mdbx(format!("open: {e}")))?;
 
         // Pre-create all named tables
