@@ -11,7 +11,41 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Planned
 - Mainnet hard fork to Voyager (DPoS + BFT + EVM)
+- Parallel tx execution (rayon)
 - Light client justification verification
+
+---
+
+## [2.0.0] — 2026-04-18
+
+**MDBX storage migration + high TPS + chain reset.**
+
+### Changed
+- **Storage:** sled → libmdbx (MDBX) across sentrix-trie + sentrix-core
+- **BLOCK_TIME_SECS:** 3 → 1 (1-second blocks)
+- **MAX_TX_PER_BLOCK:** 100 → 5000
+- **Genesis addresses:** Founder v1 → v2 (0x252f...), Early Validator v1 → v2 (0x328d...)
+- **Validators:** 7 → 3 (Foundation, Treasury, Core)
+- **CI/CD runner:** ubuntu-latest → ubuntu-22.04 (glibc 2.35 compat)
+- ChainStorage made Clone via Arc<MdbxStorage>
+- MdbxStorage gained Debug impl
+- All 12 crates bumped to v2.0.0
+
+### Added
+- sentrix-storage crate integrated into sentrix-trie + sentrix-core
+- Cloudflare Origin Certificate for *.sentriscloud.com
+- sentrixscan.sentriscloud.com explorer (nginx proxy)
+- testnet-scan.sentriscloud.com explorer
+- MPL-2.0 added to deny.toml allow-list (libmdbx)
+- Pre-commit hook allow-paths for workspace crate paths
+
+### Removed
+- sled dependency from all Cargo.toml
+- 4 decommissioned validators (Nusantara, BlockForge, PacificStake, Archipelago)
+
+### Performance
+- Benchmark: 968 txs mined, peak 616 txs/block
+- Theoretical capacity: 5000 TPS
 
 ---
 

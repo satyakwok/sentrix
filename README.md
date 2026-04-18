@@ -4,7 +4,7 @@ Fast, secure Layer-1 blockchain built in Rust.
 
 [![CI/CD](https://github.com/satyakwok/sentrix/actions/workflows/ci.yml/badge.svg)](https://github.com/satyakwok/sentrix/actions)
 [![Release](https://img.shields.io/github/v/release/satyakwok/sentrix)](https://github.com/satyakwok/sentrix/releases/latest)
-[![Tests](https://img.shields.io/badge/tests-519%20passing-brightgreen)](https://github.com/satyakwok/sentrix/actions)
+[![Tests](https://img.shields.io/badge/tests-551%20passing-brightgreen)](https://github.com/satyakwok/sentrix/actions)
 [![Rust](https://img.shields.io/badge/rust-stable-orange)](Cargo.toml)
 [![Chain ID](https://img.shields.io/badge/chain%20ID-7119-blue)](docs/operations/NETWORKS.md)
 [![License](https://img.shields.io/badge/license-BUSL--1.1-purple)](LICENSE)
@@ -13,18 +13,19 @@ Fast, secure Layer-1 blockchain built in Rust.
 
 ## What is Sentrix?
 
-Sentrix (SRX) is a purpose-built Layer-1 blockchain with 3-second block times, instant finality, and Ethereum-compatible tooling. MetaMask, ethers.js, and web3.js connect natively.
+Sentrix (SRX) is a purpose-built Layer-1 blockchain with 1-second block times, instant finality, and Ethereum-compatible tooling. MetaMask, ethers.js, and web3.js connect natively.
 
-- **v1.2.0** — Voyager EVM live on testnet (revm + `eth_sendRawTransaction`), DPoS+BFT consensus, PoA on mainnet
-- **519 tests**, clippy clean, 11 security audit rounds
-- **7 validators** across 3 nodes, zero-downtime rolling CI/CD
+- **v2.0.0** — MDBX storage, 1s blocks, 5000 tx/block capacity, EVM on testnet
+- **551 tests**, clippy clean, 11 security audit rounds
+- **3 validators** across 3 nodes, zero-downtime rolling CI/CD
 
 ## Features
 
 | | |
 |---|---|
-| **Consensus** | PoA round-robin (Pioneer) + DPoS/BFT (Voyager testnet) |
+| **Consensus** | PoA round-robin (mainnet) + DPoS/BFT (testnet) |
 | **Finality** | Instant — BFT 2/3+1 vote-based on testnet |
+| **Storage** | libmdbx — memory-mapped B+ tree (used by Reth/Erigon) |
 | **EVM** | revm 37 — Solidity contracts, MetaMask compatible (testnet) |
 | **State** | Binary Sparse Merkle Tree (BLAKE3 + SHA-256) with proofs |
 | **Tokens** | SRX-20 native + SRC-20 (ERC-20 via EVM) |
@@ -43,7 +44,7 @@ cd sentrix
 cargo build --release
 
 # Test
-cargo test    # 519 tests
+cargo test    # 551 tests
 
 # Run a node
 SENTRIX_VALIDATOR_KEY=<key> ./target/release/sentrix start --port 30303
@@ -60,22 +61,28 @@ curl http://localhost:8545/health
 | RPC URL | `https://testnet-rpc.sentriscloud.com/rpc` |
 | Chain ID | `7120` |
 | Symbol | `SRX` |
-| Explorer | `https://testnet-explorer.sentriscloud.com` |
+| Explorer | `https://testnet-scan.sentriscloud.com/explorer` |
 
 Full guide: [docs/operations/METAMASK.md](docs/operations/METAMASK.md). Deploy a smart contract via Remix: [docs/operations/SMART_CONTRACT_GUIDE.md](docs/operations/SMART_CONTRACT_GUIDE.md). EVM internals: [docs/architecture/EVM.md](docs/architecture/EVM.md).
 
 ## Architecture
 
 ```
-src/
-├── core/           # Blockchain engine, consensus, state trie, tokens
-├── network/        # libp2p P2P: Noise XX, Kademlia, Gossipsub
-├── api/            # REST + JSON-RPC + block explorer
-├── wallet/         # Key generation, Argon2id keystore
-└── storage/        # sled embedded database
+crates/
+├── sentrix-primitives/   Block, Transaction, Account, Error types
+├── sentrix-wallet/       Keystore (Argon2id), wallet ops
+├── sentrix-trie/         Binary Sparse Merkle Tree (MDBX backend)
+├── sentrix-staking/      DPoS, epoch, slashing
+├── sentrix-evm/          revm 37 adapter
+├── sentrix-bft/          BFT consensus (timeout-only round advance)
+├── sentrix-core/         Blockchain, authority, executor, mempool, storage
+├── sentrix-network/      libp2p P2P, gossipsub, kademlia
+├── sentrix-rpc/          REST API, JSON-RPC, block explorer
+├── sentrix-storage/      MDBX wrapper + ChainStorage API
+bin/sentrix/              CLI binary
 ```
 
-Single binary — node, API, explorer, CLI all ship as one ~12 MB executable.
+12 crates + 1 binary — node, API, explorer, CLI all ship as one executable.
 
 ## Network
 
@@ -83,11 +90,11 @@ Single binary — node, API, explorer, CLI all ship as one ~12 MB executable.
 |---|---|---|
 | **Chain ID** | 7119 | 7120 |
 | **RPC** | [sentrix-rpc.sentriscloud.com](https://sentrix-rpc.sentriscloud.com) | [testnet-rpc.sentriscloud.com](https://testnet-rpc.sentriscloud.com) |
-| **Consensus** | PoA (7 validators) | DPoS + BFT (4 validators) |
+| **Consensus** | PoA (3 validators) | DPoS + BFT (4 validators) |
+| **Block time** | 1 second | 1 second |
 | **EVM** | Disabled | Active — MetaMask compatible |
-| **Explorer** | sentrixscan.sentriscloud.com | testnet-explorer.sentriscloud.com |
+| **Explorer** | [sentrixscan.sentriscloud.com](https://sentrixscan.sentriscloud.com/explorer) | [testnet-scan.sentriscloud.com](https://testnet-scan.sentriscloud.com/explorer) |
 
-**Explorer:** [sentrixscan.sentriscloud.com](https://sentrixscan.sentriscloud.com)
 **Wallet:** [sentrix-wallet.sentriscloud.com](https://sentrix-wallet.sentriscloud.com)
 **Faucet:** [faucet.sentriscloud.com](https://faucet.sentriscloud.com)
 **Telegram:** [t.me/SentrixCommunity](https://t.me/SentrixCommunity)
@@ -96,9 +103,9 @@ Single binary — node, API, explorer, CLI all ship as one ~12 MB executable.
 
 | Phase | Status | Focus |
 |-------|--------|-------|
-| **Pioneer** | Live (mainnet) | PoA consensus, SRX-20 tokens, SentrixTrie, libp2p |
+| **Pioneer** | Live (mainnet v2.0.0) | PoA consensus, MDBX storage, 1s blocks, SRX-20 tokens |
 | **Voyager** | Live (testnet) | DPoS + BFT finality, EVM (revm 37), eth_sendRawTransaction |
-| **Frontier** | Planned | Mainnet hard fork, ecosystem expansion, dApps |
+| **Frontier** | Planned | Mainnet hard fork, parallel execution, ecosystem |
 | **Odyssey** | Future | Cross-chain, mature ecosystem |
 
 ## Documentation
