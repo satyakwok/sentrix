@@ -11,8 +11,47 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Planned
 - Mainnet hard fork to Voyager (DPoS + BFT + EVM)
-- Workspace split into per-crate modules
+- Extract sentrix-network, sentrix-rpc, sentrix-core crates
 - Light client justification verification
+
+---
+
+## [1.4.0] — 2026-04-18
+
+Binary restructure + workspace finalization.
+
+### Changed
+- **Binary split**: main.rs moved to `bin/sentrix/`, root crate is now library-only
+- **Version bump**: all 8 crates bumped to 1.4.0
+- **CI**: `cargo build --workspace --release` for binary crate discovery
+- Library dependencies trimmed (clap, anyhow, tracing-subscriber moved to binary crate)
+
+---
+
+## [1.3.1] — 2026-04-18
+
+Workspace refactor with CI fix + P2P integration tests.
+
+### Added
+- **Cargo workspace**: 6 domain crates extracted from monolith
+  - sentrix-primitives (Block, Transaction, Account, Error types)
+  - sentrix-wallet (keystore + wallet operations)
+  - sentrix-trie (Binary Sparse Merkle Tree)
+  - sentrix-staking (DPoS registry, epochs, slashing)
+  - sentrix-evm (revm adapter, executor, gas)
+  - sentrix-bft (Tendermint-style BFT engine)
+- **P2P integration tests** (4 tests: handshake, gossipsub propagation, 3-node mesh, chain_id rejection)
+- **Binary archive**: CI archives previous binary in `/opt/sentrix/releases/` (keeps 3 versions)
+- **Emergency rollback docs**: `docs/operations/EMERGENCY_ROLLBACK.md`
+
+### Fixed
+- **cargo-deny CI failure**: `wildcards = "allow"` for workspace path dependencies
+- **CI workspace coverage**: clippy + test now use `--workspace` flag
+
+### Note
+- v1.3.0 was RECALLED due to cargo-deny blocking CI. v1.3.1 is the corrected release.
+- Wire format unchanged — zero breaking changes from v1.2.0.
+- BFT fix preserved (timeout-only round advance).
 
 ---
 
