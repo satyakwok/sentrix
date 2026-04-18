@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
-members = [".", "crates/sentrix-primitives", "crates/sentrix-wallet", "crates/sentrix-trie", "crates/sentrix-staking", "crates/sentrix-evm", "crates/sentrix-bft"]
+members = [".", "crates/sentrix-primitives", "crates/sentrix-wallet", "crates/sentrix-trie", "crates/sentrix-staking", "crates/sentrix-evm", "crates/sentrix-bft", "bin/sentrix"]
 
 [package]
 name = "sentrix"
-version = "1.3.0"
+version = "1.4.0"
 edition = "2024"
 license = "BUSL-1.1"
 description = "Fast, secure Layer-1 blockchain built in Rust"
@@ -62,9 +62,6 @@ sled = "0.34"
 tokio = { version = "1.0", features = ["full"] }
 libp2p = { version = "0.56", features = ["tcp", "noise", "yamux", "gossipsub", "kad", "identify", "tokio", "request-response", "macros"] }
 
-# CLI
-clap = { version = "4.0", features = ["derive"] }
-
 # API
 axum = "0.8"
 tower = { version = "0.4", features = ["limit"] }
@@ -86,9 +83,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 thiserror = "1.0"
 futures = "0.3"
 async-trait = "0.1"
-anyhow = "1.0"
 tracing = "0.1"
-tracing-subscriber = "0.3"
 zeroize = "1.7"
 subtle = "2.5"
 blake3 = "1.5"
