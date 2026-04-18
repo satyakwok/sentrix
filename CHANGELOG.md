@@ -11,8 +11,36 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Planned
 - Mainnet hard fork to Voyager (DPoS + BFT + EVM)
-- Extract sentrix-network, sentrix-rpc, sentrix-core crates
 - Light client justification verification
+
+---
+
+## [1.5.0] — 2026-04-18
+
+Final 11-crate workspace extraction.
+
+### Added
+- **sentrix-core** crate — Blockchain, authority, block executor/producer, mempool, storage, VM
+- **sentrix-network** crate — libp2p P2P, gossipsub, kademlia, request-response
+- **sentrix-rpc** crate — REST API, JSON-RPC, block explorer
+
+### Changed
+- `lru` upgraded 0.12 → 0.17 (fixes Stacked Borrows vulnerability)
+- All 11 crates bumped to v1.5.0
+
+### Workspace Structure (final)
+```
+sentrix-primitives    types (Block, Tx, Account, Error)
+sentrix-wallet        keystore + wallet
+sentrix-trie          Sparse Merkle Tree
+sentrix-staking       DPoS, epoch, slashing
+sentrix-evm           revm adapter
+sentrix-bft           BFT consensus
+sentrix-core          Blockchain orchestration
+sentrix-network       P2P networking
+sentrix-rpc           API + explorer
+bin/sentrix           CLI binary
+```
 
 ---
 
