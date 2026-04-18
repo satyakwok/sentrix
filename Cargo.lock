@@ -4758,6 +4758,7 @@ dependencies = [
  "revm",
  "secp256k1 0.29.1",
  "sentrix-bft",
+ "sentrix-core",
  "sentrix-evm",
  "sentrix-primitives",
  "sentrix-staking",
@@ -4792,6 +4793,35 @@ dependencies = [
  "sha2",
  "sha3 0.11.0",
  "tracing",
+]
+
+[[package]]
+name = "sentrix-core"
+version = "1.5.0"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips 2.0.0",
+ "alloy-primitives",
+ "alloy-rlp",
+ "bincode",
+ "chrono",
+ "hex",
+ "revm",
+ "secp256k1 0.29.1",
+ "sentrix-bft",
+ "sentrix-evm",
+ "sentrix-primitives",
+ "sentrix-staking",
+ "sentrix-trie",
+ "sentrix-wallet",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sha3 0.11.0",
+ "sled",
+ "tempfile",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
