@@ -8,7 +8,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   test:
@@ -152,10 +151,12 @@ jobs:
           "
 
       # Phase 3: Rolling restart — one validator at a time so chain never stops.
-      # PoA round-robin doesn't need supermajority, so 6 of 7 online keeps producing.
-      # Each restart waits 30s for node to come back + sync before moving to next.
+      # Mainnet has 3 PoA validators (Foundation VPS1, Treasury VPS2, Core VPS3).
+      # PoA round-robin keeps producing with 2 of 3 online during any single
+      # validator's restart. Each restart waits 30s for node to come back
+      # + sync before moving to the next.
 
-      - name: Rolling restart VPS3 (sentrix-core, validator 7/7)
+      - name: Rolling restart VPS3 (sentrix-core, Sentrix Core)
         run: |
           ssh -i ~/.ssh/id_rsa_vps3 ${{ secrets.VPS3_USER }}@${{ secrets.VPS3_HOST }} "
             echo '== Rolling restart sentrix-core =='
@@ -165,18 +166,18 @@ jobs:
             curl -sf --max-time 10 http://localhost:8545/health > /dev/null && echo '  health OK' || (echo '  ERROR: health check failed' && exit 1)
           "
 
-      - name: Rolling restart VPS2 validators (5 nodes, one at a time)
+      # Only sentrix-val5 (Sentrix Treasury) is live on VPS2 in v2.0.0.
+      # sentrix-val{1..4} are the decommissioned Nusantara/BlockForge/
+      # PacificStake/Archipelago validators — unit files remain on disk
+      # but services are stopped; must NOT be restarted.
+      - name: Rolling restart VPS2 (sentrix-val5, Sentrix Treasury)
         run: |
           ssh -i ~/.ssh/id_rsa_vps2 ${{ secrets.VPS2_USER }}@${{ secrets.VPS2_HOST }} "
-            for i in 1 2 3 4 5; do
-              SVC=sentrix-val\$i
-              PORT=\$((8544 + i))
-              echo \"== Rolling restart \$SVC (port \$PORT) ==\"
-              sudo systemctl restart \$SVC
-              echo \"restarted \$SVC, waiting 30s for warm-up...\"
-              sleep 30
-              curl -sf --max-time 10 http://localhost:\$PORT/health > /dev/null && echo \"  \$SVC health OK\" || (echo \"  ERROR: \$SVC health check failed\" && exit 1)
-            done
+            echo '== Rolling restart sentrix-val5 =='
+            sudo systemctl restart sentrix-val5
+            echo 'restarted sentrix-val5, waiting 30s for warm-up...'
+            sleep 30
+            curl -sf --max-time 10 http://localhost:8549/health > /dev/null && echo '  health OK' || (echo '  ERROR: health check failed' && exit 1)
           "
 
       - name: Rolling restart VPS1 (sentrix-node, anchor — last)
@@ -219,15 +220,18 @@ jobs:
           echo '--- Final cluster health check (retry up to 5 times, 60s windows) ---'
           sleep 10
 
+          # VPS1 sentrix-node and VPS3 sentrix-core listen on 8545.
+          # VPS2 sentrix-val5 listens on 8549 (shared host with decommissioned
+          # validators that used 8545-8548 ports).
           get_h() {
-            curl -sf --max-time 10 "http://$1:8545/chain/info" \
+            curl -sf --max-time 10 "http://$1:$2/chain/info" \
               | python3 -c "import sys,json; print(json.load(sys.stdin)['height'])" 2>/dev/null || echo "0"
           }
 
           cluster_max() {
-            H1=$(get_h ${{ secrets.VPS1_HOST }})
-            H2=$(get_h ${{ secrets.VPS2_HOST }})
-            H3=$(get_h ${{ secrets.VPS3_HOST }})
+            H1=$(get_h ${{ secrets.VPS1_HOST }} 8545)
+            H2=$(get_h ${{ secrets.VPS2_HOST }} 8549)
+            H3=$(get_h ${{ secrets.VPS3_HOST }} 8545)
             echo "$H1 $H2 $H3" | tr ' ' '\n' | sort -n | tail -1
           }
 
@@ -239,9 +243,9 @@ jobs:
             sleep 60
             CURRENT=$(cluster_max)
             DELTA=$((CURRENT - BASELINE))
-            H1=$(get_h ${{ secrets.VPS1_HOST }})
-            H2=$(get_h ${{ secrets.VPS2_HOST }})
-            H3=$(get_h ${{ secrets.VPS3_HOST }})
+            H1=$(get_h ${{ secrets.VPS1_HOST }} 8545)
+            H2=$(get_h ${{ secrets.VPS2_HOST }} 8549)
+            H3=$(get_h ${{ secrets.VPS3_HOST }} 8545)
             echo "[attempt $attempt] VPS1=$H1 VPS2=$H2 VPS3=$H3 (cluster_max=$CURRENT, delta=+$DELTA)"
             if [ "$DELTA" -ge 1 ]; then
               echo "Chain advanced by $DELTA blocks. Deploy successful."
