@@ -4762,6 +4762,7 @@ dependencies = [
  "sentrix-evm",
  "sentrix-network",
  "sentrix-primitives",
+ "sentrix-rpc",
  "sentrix-staking",
  "sentrix-trie",
  "sentrix-wallet",
@@ -4882,6 +4883,32 @@ dependencies = [
  "sha2",
  "sha3 0.11.0",
  "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
+name = "sentrix-rpc"
+version = "1.5.0"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips 2.0.0",
+ "alloy-primitives",
+ "alloy-rlp",
+ "axum",
+ "chrono",
+ "hex",
+ "revm",
+ "sentrix-core",
+ "sentrix-evm",
+ "sentrix-primitives",
+ "sentrix-trie",
+ "serde",
+ "serde_json",
+ "sha3 0.11.0",
+ "subtle",
+ "tokio",
+ "tower 0.4.13",
+ "tower-http",
  "tracing",
 ]
 
