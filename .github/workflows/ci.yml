@@ -54,7 +54,7 @@ jobs:
         run: cargo clippy --workspace --tests -- -D warnings
 
       - name: Build
-        run: cargo build --release
+        run: cargo build --workspace --release
 
       - name: Test
         run: cargo test --workspace
