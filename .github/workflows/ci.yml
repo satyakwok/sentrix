@@ -15,7 +15,7 @@ jobs:
     name: Test
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Run our pre-commit secret scanner against every staged-equivalent
       # file in the working tree. Mirrors .githooks/pre-commit so a
@@ -34,7 +34,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -61,7 +61,7 @@ jobs:
 
       - name: Upload binary
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: sentrix-binary
           path: target/release/sentrix
@@ -74,7 +74,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Download binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: sentrix-binary
           path: ./release
