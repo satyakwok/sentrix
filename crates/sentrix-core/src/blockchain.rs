@@ -73,10 +73,10 @@ pub fn is_valid_sentrix_address(addr: &str) -> bool {
     addr.len() == 42 && addr.starts_with("0x") && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
-// ── Genesis addresses (from genesis_wallets.json — private keys secured) ──
-pub const FOUNDER_ADDRESS: &str = "0x4f3319a747fd564136209cd5d9e7d1a1e4d142be";
+// ── Genesis addresses (v2 — rotated 2026-04-17, private keys in Bitwarden) ──
+pub const FOUNDER_ADDRESS: &str = "0x252f8cfed5acfa9d00d99a65e2ac91f395a35d78";
 pub const ECOSYSTEM_FUND_ADDRESS: &str = "0xeb70fdefd00fdb768dec06c478f450c351499f14";
-pub const EARLY_VALIDATOR_ADDRESS: &str = "0xa7fc67af1ba0c664d859f4c1bcd2eb1f7211f112";
+pub const EARLY_VALIDATOR_ADDRESS: &str = "0x328d56b8174697ef6c9e40e19b7663797e16fa47";
 pub const RESERVE_ADDRESS: &str = "0x2578cad17e3e56c2970a5b5eab45952439f5ba97";
 
 pub const GENESIS_ALLOCATIONS: &[(&str, u64)] = &[
