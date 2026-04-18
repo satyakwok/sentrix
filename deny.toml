@@ -27,6 +27,7 @@ allow = [
     "BUSL-1.1",
     "CC0-1.0",
     "ISC",
+    "MPL-2.0",
     "Unlicense",
     "Unicode-3.0",
     "Zlib",
