@@ -4736,7 +4736,7 @@ dependencies = [
 
 [[package]]
 name = "sentrix"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "aes-gcm",
  "alloy-consensus",
@@ -4784,7 +4784,7 @@ dependencies = [
 
 [[package]]
 name = "sentrix-bft"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "bincode",
  "secp256k1 0.29.1",
@@ -4828,7 +4828,7 @@ dependencies = [
 
 [[package]]
 name = "sentrix-evm"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "alloy-primitives",
  "hex",
@@ -4857,7 +4857,7 @@ dependencies = [
 
 [[package]]
 name = "sentrix-node"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4874,7 +4874,7 @@ dependencies = [
 
 [[package]]
 name = "sentrix-primitives"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "hex",
  "secp256k1 0.29.1",
@@ -4914,7 +4914,7 @@ dependencies = [
 
 [[package]]
 name = "sentrix-staking"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "sentrix-primitives",
  "serde",
@@ -4924,7 +4924,7 @@ dependencies = [
 
 [[package]]
 name = "sentrix-trie"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "bincode",
  "blake3",
@@ -4940,7 +4940,7 @@ dependencies = [
 
 [[package]]
 name = "sentrix-wallet"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "aes-gcm",
  "argon2",
